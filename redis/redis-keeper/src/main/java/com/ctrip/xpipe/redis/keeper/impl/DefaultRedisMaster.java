@@ -8,7 +8,9 @@ import com.ctrip.xpipe.lifecycle.AbstractLifecycle;
 import com.ctrip.xpipe.redis.core.protocal.MASTER_STATE;
 import com.ctrip.xpipe.redis.core.protocal.cmd.AbstractRedisCommand;
 import com.ctrip.xpipe.redis.core.proxy.ProxyEnabled;
+import com.ctrip.xpipe.redis.core.proxy.ProxyResourceManager;
 import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEnabledEndpoint;
+import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEndpointManager;
 import com.ctrip.xpipe.redis.core.store.ReplicationStore;
 import com.ctrip.xpipe.redis.core.store.ReplicationStoreManager;
 import com.ctrip.xpipe.redis.keeper.RdbDumper;
@@ -42,16 +44,20 @@ public class DefaultRedisMaster extends AbstractLifecycle implements RedisMaster
 
 	private NioEventLoopGroup nioEventLoopGroup;
 
+	private ProxyResourceManager endpointManager;
+
 	public DefaultRedisMaster(RedisKeeperServer redisKeeperServer, DefaultEndPoint endpoint, NioEventLoopGroup nioEventLoopGroup,
-							  ReplicationStoreManager replicationStoreManager, ScheduledExecutorService scheduled) {
+							  ReplicationStoreManager replicationStoreManager, ScheduledExecutorService scheduled,
+							  ProxyResourceManager proxyResourceManager) {
 
 		this.redisKeeperServer = redisKeeperServer;
 		this.replicationStoreManager = replicationStoreManager;
 		this.nioEventLoopGroup = nioEventLoopGroup;
 		this.endpoint = endpoint;
 		this.scheduled = scheduled;
+		this.endpointManager = proxyResourceManager;
 		redisMasterReplication = new DefaultRedisMasterReplication(this, this.redisKeeperServer, nioEventLoopGroup,
-				this.scheduled, redisCommandTimeoutMilli());
+				this.scheduled, proxyResourceManager);
 	}
 	
 	@Override
@@ -109,7 +115,7 @@ public class DefaultRedisMaster extends AbstractLifecycle implements RedisMaster
 			logger.info("[createRdbDumper][master state not connected, dumper not allowed]{}", redisMasterReplication);
 			throw new CreateRdbDumperException(this, "master state not connected, dumper not allowed:" + masterState);
 		}
-		return new RedisMasterNewRdbDumper(this, redisKeeperServer, nioEventLoopGroup, scheduled);
+		return new RedisMasterNewRdbDumper(this, redisKeeperServer, nioEventLoopGroup, scheduled, endpointManager);
 	}
 	
 	public MASTER_STATE getMasterState() {
@@ -135,17 +141,6 @@ public class DefaultRedisMaster extends AbstractLifecycle implements RedisMaster
 	@Override
 	public boolean isKeeper() {
 		return isKeeper.get();
-	}
-
-	private int redisCommandTimeoutMilli() {
-		if(isMasterProxied()) {
-			return AbstractRedisMasterReplication.PROXYED_REPLICATION_TIMEOUT_MILLI;
-		}
-		return AbstractRedisCommand.DEFAULT_REDIS_COMMAND_TIME_OUT_MILLI;
-	}
-
-	private boolean isMasterProxied() {
-		return endpoint instanceof ProxyEnabled;
 	}
 
 	@Override

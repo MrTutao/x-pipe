@@ -2,6 +2,7 @@ package com.ctrip.xpipe.redis.proxy.tunnel;
 
 import com.ctrip.xpipe.redis.core.proxy.DefaultProxyProtocolParser;
 import com.ctrip.xpipe.redis.core.proxy.ProxyProtocol;
+import com.ctrip.xpipe.redis.core.proxy.ProxyResourceManager;
 import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEndpointManager;
 import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEndpointSelector;
 import com.ctrip.xpipe.redis.core.proxy.handler.NettyClientSslHandlerFactory;
@@ -10,6 +11,7 @@ import com.ctrip.xpipe.redis.proxy.AbstractRedisProxyServerTest;
 import com.ctrip.xpipe.redis.proxy.TestProxyConfig;
 import com.ctrip.xpipe.redis.proxy.config.ProxyConfig;
 import com.ctrip.xpipe.redis.proxy.integrate.AbstractProxyIntegrationTest;
+import com.ctrip.xpipe.redis.proxy.resource.ResourceManager;
 import com.ctrip.xpipe.redis.proxy.session.DefaultBackendSession;
 import com.ctrip.xpipe.redis.proxy.session.DefaultFrontendSession;
 import com.ctrip.xpipe.redis.proxy.session.state.SessionEstablished;
@@ -31,6 +33,8 @@ import org.mockito.MockitoAnnotations;
 import java.util.Queue;
 import java.util.concurrent.TimeoutException;
 
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
@@ -79,10 +83,12 @@ public class BothSessionTryWriteTest extends AbstractRedisProxyServerTest {
         spy(frontChannel);
 
         proxyProtocol = new DefaultProxyProtocolParser().read(PROXY_PROTOCOL);
-        tunnel = new DefaultTunnel(frontChannel, proxyProtocol, config);
+        tunnel = new DefaultTunnel(frontChannel, proxyProtocol, config, proxyResourceManager);
 
         frontend = new DefaultFrontendSession(tunnel, frontChannel, 300000);
-        backend = new DefaultBackendSession(tunnel, 300000, selector);
+        ResourceManager resourceManager = mock(ResourceManager.class);
+        when(resourceManager.createProxyEndpointSelector(any())).thenReturn(selector);
+        backend = new DefaultBackendSession(tunnel, new NioEventLoopGroup(1), 300000, resourceManager);
 
         frontend = spy(frontend);
         backend = spy(backend);

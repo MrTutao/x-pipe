@@ -7,7 +7,9 @@ import com.ctrip.xpipe.config.CompositeConfig;
 import com.ctrip.xpipe.config.DefaultFileConfig;
 import com.ctrip.xpipe.redis.proxy.spring.Production;
 import com.ctrip.xpipe.spring.AbstractProfile;
+import com.ctrip.xpipe.utils.IpUtils;
 import com.ctrip.xpipe.utils.StringUtil;
+import com.ctrip.xpipe.utils.XpipeThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.net.InetSocketAddress;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -28,12 +31,12 @@ import java.util.concurrent.TimeUnit;
  * May 10, 2018
  */
 
-@Component
-@Lazy
 @Profile(AbstractProfile.PROFILE_NAME_PRODUCTION)
-public class DefaultProxyConfig extends AbstractConfigBean implements ProxyConfig {
+public class DefaultProxyConfig implements ProxyConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultProxyConfig.class);
+
+    private Config config;
 
     private static final String PROXY_PROPERTIES_PATH = String.format("/opt/data/%s", FoundationService.DEFAULT.getAppId());
 
@@ -47,28 +50,26 @@ public class DefaultProxyConfig extends AbstractConfigBean implements ProxyConfi
 
     private static final String KEY_FRONTEND_TLS_PORT = "proxy.frontend.tls.port";
 
-    private static final String KEY_DEBUG_TUNNEL = "proxy.debug.tunnel";
-
-    private static final String KEY_NOT_INTEREST_IP = "proxy.not.interest.ips";
-
     private static final String KEY_NO_TLS_NETTY_HANDLER = "proxy.no.tls.netty.handler";
 
-    private String[] notInterests;
+    private static final String KEY_INTERNAL_NETWORK_PREFIX = "proxy.internal.network.prefix";
 
-    @Resource(name = Production.GLOBAL_SCHEDULED)
-    private ScheduledExecutorService scheduled;
+    private static final String KEY_RECV_BUFFER_SIZE = "proxy.recv.buffer.size";
+
+    private static final String KEY_MAX_PACKET_BUFFER_SIZE = "proxy.max.packet.buffer.size";
+
+    private ScheduledExecutorService scheduled = Executors.newScheduledThreadPool(1, XpipeThreadFactory.create("DefaultProxyConfig"));
 
     public DefaultProxyConfig() {
-        setConfig(initConfig());
+        config = initConfig();
+        scheduledFresh();
     }
 
-    @PostConstruct
     public void scheduledFresh() {
         scheduled.scheduleWithFixedDelay(new Runnable() {
             @Override
             public void run() {
-                setConfig(initConfig());
-                refreshNotInterest();
+                config = initConfig();
             }
         }, 1, 1, TimeUnit.MINUTES);
     }
@@ -110,34 +111,21 @@ public class DefaultProxyConfig extends AbstractConfigBean implements ProxyConfi
     }
 
     @Override
-    public boolean debugTunnel() {
-        return getBooleanProperty(KEY_DEBUG_TUNNEL, false);
-    }
-
-    @Override
-    public boolean notInterest(InetSocketAddress address) {
-        if(notInterests == null || notInterests.length == 0) {
-            refreshNotInterest();
-        }
-        if(notInterests == null) {
-            return false;
-        }
-        for(String ip : notInterests) {
-            if(address.getHostName().equals(ip))
-                return true;
-        }
-        return false;
-    }
-
-    @Override
     public boolean noTlsNettyHandler() {
         return getBooleanProperty(KEY_NO_TLS_NETTY_HANDLER, false);
     }
 
-    private void refreshNotInterest() {
-        String ips = getProperty(KEY_NOT_INTEREST_IP, "0.0.0.0");
-        notInterests = StringUtil.splitRemoveEmpty("\\s*,\\s*", ips);
+    @Override
+    public int getFixedRecvBufferSize() {
+        return getIntProperty(KEY_RECV_BUFFER_SIZE, 1024);
     }
+
+    @Override
+    public String[] getInternalNetworkPrefix() {
+        String internalNetworkPrefix = getProperty(KEY_INTERNAL_NETWORK_PREFIX, "10");
+        return IpUtils.splitIpAddr(internalNetworkPrefix);
+    }
+
 
     @Override
     public String getPassword() {
@@ -157,5 +145,45 @@ public class DefaultProxyConfig extends AbstractConfigBean implements ProxyConfi
     @Override
     public String getCertFileType() {
         return getProperty(KEY_CERT_FILE_TYPE, "JKS");
+    }
+
+    @Override
+    public int getMaxPacketBufferSize() {
+        return getIntProperty(KEY_MAX_PACKET_BUFFER_SIZE, 2048);
+    }
+
+    protected String getProperty(String key, String defaultValue){
+        return config.get(key, defaultValue);
+    }
+
+    protected Integer getIntProperty(String key, Integer defaultValue){
+
+        String value = config.get(key);
+        if(value == null){
+            return defaultValue;
+        }
+        return Integer.parseInt(value.trim());
+
+    }
+
+    protected Long getLongProperty(String key, Long defaultValue){
+
+        String value = config.get(key);
+        if(value == null){
+            return defaultValue;
+        }
+        //TODO cache value to avoid convert each time
+        return Long.parseLong(value.trim());
+
+    }
+
+    protected Boolean getBooleanProperty(String key, Boolean defaultValue){
+
+        String value = config.get(key);
+        if(value == null){
+            return defaultValue;
+        }
+
+        return Boolean.parseBoolean(value.trim());
     }
 }

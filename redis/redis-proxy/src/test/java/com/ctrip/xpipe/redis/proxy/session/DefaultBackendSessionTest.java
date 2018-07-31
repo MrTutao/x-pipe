@@ -1,16 +1,15 @@
 package com.ctrip.xpipe.redis.proxy.session;
 
 import com.ctrip.xpipe.redis.core.exception.NoResourceException;
-import com.ctrip.xpipe.redis.core.proxy.endpoint.DefaultProxyEndpoint;
-import com.ctrip.xpipe.redis.core.proxy.endpoint.DefaultProxyEndpointSelector;
-import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEndpointSelector;
-import com.ctrip.xpipe.redis.core.proxy.endpoint.SelectOneCycle;
+import com.ctrip.xpipe.redis.core.proxy.endpoint.*;
 import com.ctrip.xpipe.redis.core.proxy.handler.NettyServerSslHandlerFactory;
 import com.ctrip.xpipe.redis.core.proxy.handler.NettySslHandlerFactory;
 import com.ctrip.xpipe.redis.proxy.AbstractRedisProxyServerTest;
 import com.ctrip.xpipe.redis.proxy.TestProxyConfig;
 import com.ctrip.xpipe.redis.proxy.Tunnel;
 import com.ctrip.xpipe.redis.proxy.exception.ResourceIncorrectException;
+import com.ctrip.xpipe.redis.proxy.resource.ResourceManager;
+import com.ctrip.xpipe.redis.proxy.session.state.SessionClosed;
 import com.ctrip.xpipe.redis.proxy.session.state.SessionEstablished;
 import com.ctrip.xpipe.redis.proxy.session.state.SessionInit;
 import com.ctrip.xpipe.utils.XpipeThreadFactory;
@@ -52,7 +51,9 @@ public class DefaultBackendSessionTest extends AbstractRedisProxyServerTest {
     @Before
     public void beforeDefaultBackendSessionTest() {
         MockitoAnnotations.initMocks(this);
-        session = new DefaultBackendSession(tunnel, 300000, selector);
+        ResourceManager resourceManager = mock(ResourceManager.class);
+        when(resourceManager.createProxyEndpointSelector(any())).thenReturn(selector);
+        session = new DefaultBackendSession(tunnel, new NioEventLoopGroup(1), 300000, resourceManager);
 
     }
 
@@ -84,6 +85,31 @@ public class DefaultBackendSessionTest extends AbstractRedisProxyServerTest {
         selector.setSelectStrategy(new SelectOneCycle(selector));
         doCallRealMethod().when(selector).nextHop();
         session.doStart();
+    }
+
+    @Test(expected = NoResourceException.class)
+    public void testDoStartWithNoNextAvailable() throws Exception {
+        when(selector.selectCounts()).thenReturn(2);
+        when(selector.getCandidates()).thenReturn(Lists.newArrayList(newProxyEndpoint(true, true), newProxyEndpoint(true, false)));
+        selector.setSelectStrategy(new SelectOneCycle(selector));
+        doCallRealMethod().when(selector).nextHop();
+
+        session.doStart();
+    }
+
+    @Test
+    public void testDoStartWithConnectTwoTimesLose() throws Exception {
+        selector = new DefaultProxyEndpointSelector(Lists.newArrayList(newProxyEndpoint(true, false), newProxyEndpoint(true, false)), endpointManager());
+        selector.setSelectStrategy(new SelectOneCycle(selector));
+        selector.setNextHopAlgorithm(new NaiveNextHopAlgorithm());
+        ResourceManager resourceManager = mock(ResourceManager.class);
+        when(resourceManager.createProxyEndpointSelector(any())).thenReturn(selector);
+        when(resourceManager.getProxyConfig()).thenReturn(config());
+        session = new DefaultBackendSession(tunnel, new NioEventLoopGroup(1), 300000, resourceManager);
+        session.setNioEventLoopGroup(new NioEventLoopGroup(1));
+        session.doStart();
+        Thread.sleep(1000);
+        Assert.assertEquals(new SessionClosed(session), session.getSessionState());
     }
 
     @Test

@@ -7,8 +7,10 @@ import com.ctrip.xpipe.utils.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.ssl.NotSslRecordException;
 
 import static io.netty.util.internal.StringUtil.NEWLINE;
+import static io.netty.util.internal.StringUtil.substringAfter;
 
 /**
  * @author chen.zhu
@@ -35,8 +37,11 @@ public abstract class AbstractSessionNettyHandler extends AbstractNettyHandler {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        logger.error("[exceptionCaught] ", cause);
         session.release();
+        if(cause instanceof NotSslRecordException) {
+            return;
+        }
+        logger.error("[exceptionCaught] ", cause);
         super.exceptionCaught(ctx, cause);
     }
 
@@ -44,6 +49,7 @@ public abstract class AbstractSessionNettyHandler extends AbstractNettyHandler {
     public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
         logger.debug("[channelWritabilityChanged] writable: {}", ctx.channel().isWritable());
 
+        logger.info("[channelWritabilityChanged] buffer size: {}", ctx.channel().unsafe().outboundBuffer().totalPendingWriteBytes());
         if(ctx.channel().isWritable()) {
             session.setWritableState(Session.SessionWritableState.WRITABLE);
         } else {

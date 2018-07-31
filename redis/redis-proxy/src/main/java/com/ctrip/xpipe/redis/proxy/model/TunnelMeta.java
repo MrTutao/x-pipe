@@ -12,7 +12,7 @@ import java.io.Serializable;
  */
 public class TunnelMeta implements Serializable {
 
-    private String identity;
+    private TunnelIdentity identity;
 
     private String state;
 
@@ -30,7 +30,7 @@ public class TunnelMeta implements Serializable {
         this.backend = tunnel.backend().getSessionMeta();
     }
 
-    public TunnelMeta(String identity, String state, String protocol, SessionMeta frontend, SessionMeta backend) {
+    public TunnelMeta(TunnelIdentity identity, String state, String protocol, SessionMeta frontend, SessionMeta backend) {
         this.identity = identity;
         this.state = state;
         this.protocol = protocol;
@@ -38,11 +38,11 @@ public class TunnelMeta implements Serializable {
         this.backend = backend;
     }
 
-    public String getIdentity() {
+    public TunnelIdentity getIdentity() {
         return identity;
     }
 
-    public TunnelMeta setIdentity(String identity) {
+    public TunnelMeta setIdentity(TunnelIdentity identity) {
         this.identity = identity;
         return this;
     }
@@ -86,7 +86,7 @@ public class TunnelMeta implements Serializable {
     @Override
     public String toString() {
         StringBuffer sb = new StringBuffer("{");
-        sb.append("identity: ").append(identity).append(",");
+        sb.append("identity: ").append(identity.toString()).append(",");
         sb.append("state: ").append(state).append(",");
         sb.append("protocol: ").append(protocol).append(",");
         sb.append("frontend: ").append(frontend.toString()).append(",");

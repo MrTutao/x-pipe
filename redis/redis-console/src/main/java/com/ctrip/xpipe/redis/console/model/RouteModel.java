@@ -1,5 +1,10 @@
 package com.ctrip.xpipe.redis.console.model;
 
+import com.ctrip.xpipe.exception.XpipeRuntimeException;
+import com.ctrip.xpipe.redis.console.service.DcService;
+
+import java.util.Objects;
+
 /**
  * @author chen.zhu
  * <p>
@@ -11,17 +16,17 @@ public class RouteModel {
 
     private long orgId;
 
-    private String srcProxyIds;
+    private String srcProxyIds = "";
 
-    private String dstProxyIds;
+    private String dstProxyIds = "";
 
-    private String optionProxyIds;
+    private String optionProxyIds = "";
 
-    private String srcDcName;
+    private String srcDcName = "";
 
-    private String dstDcName;
+    private String dstDcName = "";
 
-    private String tag;
+    private String tag = "";
 
     private boolean active;
 
@@ -104,5 +109,61 @@ public class RouteModel {
     public RouteModel setActive(boolean active) {
         this.active = active;
         return this;
+    }
+
+    public static RouteModel fromRouteTbl(RouteTbl routeTbl, DcService dcService) {
+        RouteModel model = new RouteModel();
+        model.setActive(routeTbl.isActive()).setDstProxyIds(routeTbl.getDstProxyIds())
+                .setId(routeTbl.getId()).setSrcProxyIds(routeTbl.getSrcProxyIds());
+
+        model.setSrcDcName(dcService.find(routeTbl.getSrcDcId()).getDcName())
+                .setDstDcName(dcService.find(routeTbl.getDstDcId()).getDcName());
+
+        model.setTag(routeTbl.getTag()).setOptionProxyIds(routeTbl.getOptionalProxyIds())
+                .setOrgId(routeTbl.getRouteOrgId());
+        return model;
+    }
+
+    public RouteTbl toRouteTbl(DcService dcService) {
+        RouteTbl proto = new RouteTbl();
+        proto.setActive(active).setId(id).setOptionalProxyIds(optionProxyIds).setSrcProxyIds(srcProxyIds)
+                .setDstProxyIds(dstProxyIds).setTag(tag).setRouteOrgId(orgId);
+        DcTbl srcDc = dcService.find(srcDcName), dstDc = dcService.find(dstDcName);
+        if(srcDc == null) {
+            throw new XpipeRuntimeException("Source Dc not found");
+        }
+        if(dstDc == null) {
+            throw new XpipeRuntimeException("Destination Dc not found");
+        }
+        proto.setSrcDcId(srcDc.getId()).setDstDcId(dstDc.getId());
+        return proto;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        RouteModel that = (RouteModel) o;
+        return id == that.id &&
+                orgId == that.orgId &&
+                active == that.active &&
+                Objects.equals(srcProxyIds, that.srcProxyIds) &&
+                Objects.equals(dstProxyIds, that.dstProxyIds) &&
+                Objects.equals(optionProxyIds, that.optionProxyIds) &&
+                Objects.equals(srcDcName, that.srcDcName) &&
+                Objects.equals(dstDcName, that.dstDcName) &&
+                Objects.equals(tag, that.tag);
+    }
+
+    @Override
+    public int hashCode() {
+
+        return Objects.hash(id, orgId, srcProxyIds, dstProxyIds, optionProxyIds, srcDcName, dstDcName, tag, active);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("RouteModel[id: %d, orgId: %d, srcProxyIds: %s, dstProxyIds: %s, srcDcName: %s, dstDcName: %s, tag: %s, active: %b]",
+                id, orgId, srcProxyIds, dstProxyIds, srcDcName, dstDcName, tag, active);
     }
 }

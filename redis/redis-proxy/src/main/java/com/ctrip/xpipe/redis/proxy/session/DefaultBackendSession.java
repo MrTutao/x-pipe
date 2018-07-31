@@ -1,13 +1,17 @@
 package com.ctrip.xpipe.redis.proxy.session;
 
 import com.ctrip.xpipe.api.monitor.EventMonitor;
+import com.ctrip.xpipe.redis.core.proxy.ProxyResourceManager;
 import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEndpoint;
 import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEndpointSelector;
 import com.ctrip.xpipe.redis.core.proxy.handler.NettySslHandlerFactory;
 import com.ctrip.xpipe.redis.proxy.Tunnel;
+import com.ctrip.xpipe.redis.proxy.config.ProxyConfig;
 import com.ctrip.xpipe.redis.proxy.controller.ComponentRegistryHolder;
 import com.ctrip.xpipe.redis.proxy.handler.BackendSessionHandler;
 import com.ctrip.xpipe.redis.proxy.handler.TunnelTrafficReporter;
+import com.ctrip.xpipe.redis.proxy.resource.ResourceManager;
+import com.ctrip.xpipe.redis.proxy.session.state.SessionClosed;
 import com.ctrip.xpipe.redis.proxy.session.state.SessionClosing;
 import com.ctrip.xpipe.redis.proxy.session.state.SessionEstablished;
 import com.ctrip.xpipe.redis.proxy.session.state.SessionInit;
@@ -17,6 +21,7 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.logging.LogLevel;
@@ -24,6 +29,8 @@ import io.netty.handler.logging.LoggingHandler;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static com.ctrip.xpipe.redis.proxy.DefaultProxyServer.FIXED_RCVBUF_ALLOCATE_SIZE;
 import static com.ctrip.xpipe.redis.proxy.DefaultProxyServer.WRITE_HIGH_WATER_MARK;
 import static com.ctrip.xpipe.redis.proxy.DefaultProxyServer.WRITE_LOW_WATER_MARK;
 import static com.ctrip.xpipe.redis.proxy.spring.Production.BACKEND_EVENTLOOP_GROUP;
@@ -46,13 +53,15 @@ public class DefaultBackendSession extends AbstractSession implements BackendSes
 
     private AtomicReference<SessionState> sessionState;
 
-    public DefaultBackendSession(Tunnel tunnel, long trafficReportIntervalMillis, ProxyEndpointSelector selector) {
+    private ResourceManager resourceManager;
+
+    public DefaultBackendSession(Tunnel tunnel, EventLoopGroup eventLoopGroup, long trafficReportIntervalMillis,
+                                 ResourceManager resourceManager) {
         super(tunnel, trafficReportIntervalMillis);
-        this.selector = selector;
-        this.nioEventLoopGroup = (EventLoopGroup) ComponentRegistryHolder.getComponentRegistry()
-                                                    .getComponent(BACKEND_EVENTLOOP_GROUP);
-        this.sslHandlerFactory = (NettySslHandlerFactory) ComponentRegistryHolder.getComponentRegistry()
-                                                    .getComponent(CLIENT_SSL_HANDLER_FACTORY);
+        this.resourceManager = resourceManager;
+        this.selector = resourceManager.createProxyEndpointSelector(tunnel.getProxyProtocol());
+        this.nioEventLoopGroup = eventLoopGroup;
+        this.sslHandlerFactory = resourceManager.getClientSslHandlerFactory();
         this.sessionState = new AtomicReference<>(new SessionInit(this));
     }
 
@@ -65,7 +74,8 @@ public class DefaultBackendSession extends AbstractSession implements BackendSes
         try {
             this.endpoint = selector.nextHop();
         } catch (Exception e) {
-            setSessionState(new SessionClosing(this));
+            setSessionState(new SessionClosed(this));
+            logger.error("[connect] select nextHop error", e);
             throw e;
         }
         ChannelFuture connectionFuture = initChannel(endpoint);
@@ -75,7 +85,7 @@ public class DefaultBackendSession extends AbstractSession implements BackendSes
                 if(future.isSuccess()) {
                     onChannelEstablished(future.channel());
                 } else {
-                    logger.error("[tryConnect] fail to connect: {}", getSessionMeta(), future.cause());
+                    logger.error("[tryConnect] fail to connect: {}, {}", getSessionMeta(), future.cause());
                     future.channel().eventLoop()
                             .schedule(()->connect(), selector.selectCounts(), TimeUnit.MILLISECONDS);
                 }
@@ -85,13 +95,15 @@ public class DefaultBackendSession extends AbstractSession implements BackendSes
 
     private ChannelFuture initChannel(ProxyEndpoint endpoint) {
         Bootstrap b = new Bootstrap();
+        ProxyConfig config = resourceManager.getProxyConfig();
         b.group(nioEventLoopGroup)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.TCP_NODELAY, true)
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10 * 1000) //10 sec timeout, to avoid forever waiting
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 7 * 1000) //7 sec timeout, to avoid forever waiting
                 .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
                 .option(ChannelOption.WRITE_BUFFER_HIGH_WATER_MARK, WRITE_HIGH_WATER_MARK)
                 .option(ChannelOption.WRITE_BUFFER_LOW_WATER_MARK, WRITE_LOW_WATER_MARK)
+                .option(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(config.getFixedRecvBufferSize()))
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     public void initChannel(SocketChannel ch) {

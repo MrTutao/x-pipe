@@ -5,10 +5,12 @@ import com.ctrip.xpipe.api.observer.Observable;
 import com.ctrip.xpipe.concurrent.AbstractExceptionLogTask;
 import com.ctrip.xpipe.lifecycle.LifecycleHelper;
 import com.ctrip.xpipe.redis.core.proxy.ProxyProtocol;
+import com.ctrip.xpipe.redis.core.proxy.ProxyResourceManager;
 import com.ctrip.xpipe.redis.core.proxy.endpoint.ProxyEndpointManager;
 import com.ctrip.xpipe.redis.core.proxy.handler.NettySslHandlerFactory;
 import com.ctrip.xpipe.redis.proxy.Tunnel;
 import com.ctrip.xpipe.redis.proxy.config.ProxyConfig;
+import com.ctrip.xpipe.redis.proxy.resource.ResourceManager;
 import com.ctrip.xpipe.redis.proxy.spring.Production;
 import com.ctrip.xpipe.redis.proxy.tunnel.state.TunnelClosed;
 import com.ctrip.xpipe.utils.ChannelUtil;
@@ -51,6 +53,9 @@ public class DefaultTunnelManager implements TunnelManager {
 
     @Autowired
     private ProxyConfig config;
+
+    @Autowired
+    private ResourceManager proxyResourceManager;
 
     private Map<Channel, Tunnel> cache = Maps.newConcurrentMap();
 
@@ -103,7 +108,7 @@ public class DefaultTunnelManager implements TunnelManager {
         Tunnel tunnel = MapUtils.getOrCreate(cache, frontendChannel, new ObjectFactory<Tunnel>() {
             @Override
             public Tunnel create() {
-                return new DefaultTunnel(frontendChannel, protocol, config);
+                return new DefaultTunnel(frontendChannel, protocol, config, proxyResourceManager);
             }
         });
         initAndStart(tunnel);
@@ -192,6 +197,12 @@ public class DefaultTunnelManager implements TunnelManager {
     @VisibleForTesting
     public DefaultTunnelManager setConfig(ProxyConfig config) {
         this.config = config;
+        return this;
+    }
+
+    @VisibleForTesting
+    public DefaultTunnelManager setProxyResourceManager(ResourceManager manager) {
+        this.proxyResourceManager = manager;
         return this;
     }
 }

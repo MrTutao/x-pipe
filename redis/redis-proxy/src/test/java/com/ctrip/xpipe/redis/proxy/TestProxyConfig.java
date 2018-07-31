@@ -34,18 +34,18 @@ public class TestProxyConfig implements ProxyConfig {
     }
 
     @Override
-    public boolean debugTunnel() {
-        return false;
-    }
-
-    @Override
-    public boolean notInterest(InetSocketAddress address) {
-        return false;
-    }
-
-    @Override
     public boolean noTlsNettyHandler() {
         return false;
+    }
+
+    @Override
+    public int getFixedRecvBufferSize() {
+        return 1024;
+    }
+
+    @Override
+    public String[] getInternalNetworkPrefix() {
+        return null;
     }
 
     @Override
@@ -66,6 +66,11 @@ public class TestProxyConfig implements ProxyConfig {
     @Override
     public String getCertFileType() {
         return "JKS";
+    }
+
+    @Override
+    public int getMaxPacketBufferSize() {
+        return 2048;
     }
 
     public TestProxyConfig setFrontendTcpPort(int frontendTcpPort) {

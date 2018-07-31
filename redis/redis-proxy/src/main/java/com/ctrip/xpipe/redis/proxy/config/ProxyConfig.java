@@ -20,9 +20,10 @@ public interface ProxyConfig extends TLSConfig {
 
     int endpointHealthCheckIntervalSec();
 
-    boolean debugTunnel();
-
-    boolean notInterest(InetSocketAddress address);
-
     boolean noTlsNettyHandler();
+
+    int getFixedRecvBufferSize();
+
+    // to avoid any connect outside internal network
+    String[] getInternalNetworkPrefix();
 }

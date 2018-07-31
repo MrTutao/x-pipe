@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @author chen.zhu
@@ -39,6 +40,10 @@ public abstract class AbstractSession extends AbstractLifecycleObservable implem
     private List<SessionEventHandler> handlers = Lists.newArrayList();
 
     private volatile SessionWritableState writableState = SessionWritableState.WRITABLE;
+
+    private AtomicBoolean logRead = new AtomicBoolean(false);
+
+    private AtomicBoolean logWrite = new AtomicBoolean(false);
 
     protected AbstractSession(Tunnel tunnel, long trafficReportIntervalMillis) {
         this.tunnel = tunnel;
@@ -67,7 +72,7 @@ public abstract class AbstractSession extends AbstractLifecycleObservable implem
 
     @Override
     public void setWritableState(SessionWritableState state) {
-        if(state == writableState) {
+        if(state.equals(writableState)) {
             return;
         }
         writableState = state;
@@ -81,6 +86,26 @@ public abstract class AbstractSession extends AbstractLifecycleObservable implem
 
                 default: break;
         }
+    }
+
+    @Override
+    public boolean logRead() {
+        return logRead.get();
+    }
+
+    @Override
+    public boolean logWrite() {
+        return logWrite.get();
+    }
+
+    @Override
+    public void markReadLoggability(boolean isLoggable) {
+        logRead.set(isLoggable);
+    }
+
+    @Override
+    public void markWriteLoggability(boolean isLoggable) {
+        logWrite.set(isLoggable);
     }
 
     protected void onSessionInit() {
@@ -121,7 +146,7 @@ public abstract class AbstractSession extends AbstractLifecycleObservable implem
 
     protected void setSessionState(SessionState newState) {
         if(!getSessionState().isValidNext(newState)) {
-            logger.debug("[setSessionState] Set state failed, state relationship not match, old: {}, new: {}",
+            logger.error("[setSessionState] Set state failed, state relationship not match, old: {}, new: {}",
                     getSessionState(), newState.name());
             return;
         }
@@ -155,16 +180,6 @@ public abstract class AbstractSession extends AbstractLifecycleObservable implem
             channel.close();
         }
         setSessionState(new SessionClosed(this));
-    }
-
-    @Override
-    protected void doInitialize() throws Exception {
-        super.doInitialize();
-    }
-
-    @Override
-    protected void doStart() throws Exception {
-        super.doStart();
     }
 
     @VisibleForTesting

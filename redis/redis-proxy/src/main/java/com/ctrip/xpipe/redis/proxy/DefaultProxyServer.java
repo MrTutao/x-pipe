@@ -2,10 +2,13 @@ package com.ctrip.xpipe.redis.proxy;
 
 import com.ctrip.xpipe.api.foundation.FoundationService;
 import com.ctrip.xpipe.redis.core.proxy.handler.NettySslHandlerFactory;
+import com.ctrip.xpipe.redis.proxy.concurrent.FastThreadLocalThreadFactory;
 import com.ctrip.xpipe.redis.proxy.config.ProxyConfig;
 import com.ctrip.xpipe.redis.proxy.handler.FrontendSessionNettyHandler;
+import com.ctrip.xpipe.redis.proxy.handler.InternalNetworkHandler;
 import com.ctrip.xpipe.redis.proxy.handler.ProxyProtocolDecoder;
 import com.ctrip.xpipe.redis.proxy.monitor.NettyPoolArenaMetricReporter;
+import com.ctrip.xpipe.redis.proxy.resource.ResourceManager;
 import com.ctrip.xpipe.redis.proxy.spring.Production;
 import com.ctrip.xpipe.redis.proxy.tunnel.TunnelManager;
 import com.ctrip.xpipe.utils.OsUtils;
@@ -14,10 +17,7 @@ import com.ctrip.xpipe.utils.XpipeThreadFactory;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.PooledByteBufAllocator;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -44,6 +44,9 @@ public class DefaultProxyServer implements ProxyServer {
     private Logger logger = LoggerFactory.getLogger(DefaultProxyServer.class);
 
     @Autowired
+    private ResourceManager resourceManager;
+
+    @Autowired
     private ProxyConfig config;
 
     @Autowired
@@ -59,6 +62,8 @@ public class DefaultProxyServer implements ProxyServer {
     public static final int WRITE_LOW_WATER_MARK = 10 * MEGA_BYTE;
 
     public static final int WRITE_HIGH_WATER_MARK = 5 * WRITE_LOW_WATER_MARK;
+
+    public static final int FIXED_RCVBUF_ALLOCATE_SIZE = 1024;
 
     public DefaultProxyServer() {
     }
@@ -86,6 +91,7 @@ public class DefaultProxyServer implements ProxyServer {
             public void initChannel(SocketChannel ch) throws Exception {
 
                 ChannelPipeline p = ch.pipeline();
+                p.addLast(new InternalNetworkHandler(config.getInternalNetworkPrefix()));
                 p.addLast(new LoggingHandler(LogLevel.DEBUG));
                 p.addLast(new ProxyProtocolDecoder(ProxyProtocolDecoder.DEFAULT_MAX_LENGTH));
                 p.addLast(new FrontendSessionNettyHandler(tunnelManager));
@@ -108,9 +114,6 @@ public class DefaultProxyServer implements ProxyServer {
         ServerBootstrap b = bootstrap("tls").childHandler(new ChannelInitializer<SocketChannel>() {
             @Override
             public void initChannel(SocketChannel ch) throws Exception {
-                if(config.notInterest(ch.remoteAddress())) {
-                    return;
-                }
                 ChannelPipeline p = ch.pipeline();
                 if(!config.noTlsNettyHandler()) {
                     p.addLast(serverSslHandlerFactory.createSslHandler());
@@ -127,13 +130,14 @@ public class DefaultProxyServer implements ProxyServer {
     private ServerBootstrap bootstrap(String prefix) {
 
         ServerBootstrap bootstrap = new ServerBootstrap();
-        bootstrap.group(new NioEventLoopGroup(1, XpipeThreadFactory.create("frontend-boss-" + prefix)),
-                new NioEventLoopGroup(OsUtils.getCpuCount() * 2, XpipeThreadFactory.create("frontend-worker-" + prefix)))
+        bootstrap.group(new NioEventLoopGroup(1, FastThreadLocalThreadFactory.create("boss-" + prefix)),
+                new NioEventLoopGroup(OsUtils.getCpuCount() * 2, FastThreadLocalThreadFactory.create("worker-" + prefix)))
                 .channel(NioServerSocketChannel.class)
                 .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
                 .childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
                 .childOption(ChannelOption.WRITE_BUFFER_HIGH_WATER_MARK, WRITE_HIGH_WATER_MARK)
                 .childOption(ChannelOption.WRITE_BUFFER_LOW_WATER_MARK, WRITE_LOW_WATER_MARK)
+                .childOption(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(config.getFixedRecvBufferSize()))
                 .handler(new LoggingHandler(LogLevel.DEBUG));
         return bootstrap;
     }
@@ -171,5 +175,10 @@ public class DefaultProxyServer implements ProxyServer {
     @VisibleForTesting
     public ProxyConfig getConfig() {
         return config;
+    }
+
+    @VisibleForTesting
+    public TunnelManager getTunnelManager() {
+        return this.tunnelManager;
     }
 }
