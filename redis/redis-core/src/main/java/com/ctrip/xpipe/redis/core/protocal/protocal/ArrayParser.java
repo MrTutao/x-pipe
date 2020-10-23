@@ -2,18 +2,24 @@ package com.ctrip.xpipe.redis.core.protocal.protocal;
 
 
 import com.ctrip.xpipe.payload.ByteArrayOutputStreamPayload;
+import com.ctrip.xpipe.payload.InOutPayloadFactory;
 import com.ctrip.xpipe.redis.core.exception.RedisRuntimeException;
 import com.ctrip.xpipe.redis.core.protocal.RedisClientProtocol;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * @author wenchao.meng
  *
  * 2016年4月22日 下午6:05:05
  */
 public class ArrayParser extends AbstractRedisClientProtocol<Object[]>{
+
+	private static final Logger logger = LoggerFactory.getLogger(ArrayParser.class);
 	
 	public enum ARRAY_STATE{
 		READ_SIZE,
@@ -26,14 +32,10 @@ public class ArrayParser extends AbstractRedisClientProtocol<Object[]>{
 	private RedisClientProtocol<?> currentParser  = null;
 	private ARRAY_STATE arrayState = ARRAY_STATE.READ_SIZE;
 
-	private int bulkStringInitSize;
+	private InOutPayloadFactory inOutPayloadFactory;
 
 	public ArrayParser() {
 
-	}
-	
-	public ArrayParser(int bulkStringInitSize) {
-		this.bulkStringInitSize = bulkStringInitSize;
 	}
 	
 	public ArrayParser(Object []payload){
@@ -86,13 +88,17 @@ public class ArrayParser extends AbstractRedisClientProtocol<Object[]>{
 									byteBuf.readByte();
 									break;
 								case DOLLAR_BYTE:
-									currentParser = new BulkStringParser(new ByteArrayOutputStreamPayload(bulkStringInitSize));
+									if(inOutPayloadFactory != null) {
+										currentParser = new BulkStringParser(inOutPayloadFactory.create());
+									} else {
+										currentParser = new BulkStringParser(new ByteArrayOutputStreamPayload());
+									}
 									break;
 								case COLON_BYTE:
 									currentParser = new LongParser();
 									break;
 								case ASTERISK_BYTE:
-									currentParser = new ArrayParser(bulkStringInitSize);
+									currentParser = new ArrayParser().setInOutPayloadFactory(inOutPayloadFactory);
 									break;
 								case MINUS_BYTE:
 									currentParser = new RedisErrorParser();
@@ -142,7 +148,17 @@ public class ArrayParser extends AbstractRedisClientProtocol<Object[]>{
 	}
 
 	@Override
+	protected Logger getLogger() {
+		return logger;
+	}
+
+	@Override
 	public boolean supportes(Class<?> clazz) {
 		return clazz.isArray();
+	}
+
+	public ArrayParser setInOutPayloadFactory(InOutPayloadFactory inOutPayloadFactory) {
+		this.inOutPayloadFactory = inOutPayloadFactory;
+		return this;
 	}
 }

@@ -21,6 +21,7 @@ import com.ctrip.xpipe.utils.OsUtils;
 import com.ctrip.xpipe.utils.XpipeThreadFactory;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.springframework.boot.context.embedded.FilterRegistrationBean;
+import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.context.annotation.*;
 
 import java.util.concurrent.*;
@@ -33,15 +34,22 @@ import java.util.concurrent.*;
 @Configuration
 @EnableAspectJAutoProxy
 @ComponentScan(basePackages = {"com.ctrip.xpipe.service.sso"})
+@ServletComponentScan("com.ctrip.framework.fireman")
 public class ConsoleContextConfig extends AbstractRedisConfigContext {
 
 	public final static String REDIS_COMMAND_EXECUTOR = "redisCommandExecutor";
 
 	public final static String KEYED_NETTY_CLIENT_POOL = "keyedClientPool";
 
+	public final static String REDIS_SESSION_NETTY_CLIENT_POOL = "redisSessionClientPool";
+
 	public final static String PING_DELAY_EXECUTORS = "pingDelayExecutors";
 
 	public final static String PING_DELAY_SCHEDULED = "pingDelayScheduled";
+
+	private final static int REDIS_SESSION_CLIENT_POOL_SIZE = Integer.parseInt(System.getProperty("REDIS_SESSION_CLIENT_POOL_SIZE", "12"));
+
+	private final static int KEYED_CLIENT_POOL_SIZE = Integer.parseInt(System.getProperty("KEYED_CLIENT_POOL_SIZE", "8"));
 
 	@Bean(name = REDIS_COMMAND_EXECUTOR)
 	public ScheduledExecutorService getRedisCommandExecutor() {
@@ -62,16 +70,23 @@ public class ConsoleContextConfig extends AbstractRedisConfigContext {
 
 	@Bean(name = KEYED_NETTY_CLIENT_POOL)
 	public XpipeNettyClientKeyedObjectPool getReqResNettyClientPool() throws Exception {
-		XpipeNettyClientKeyedObjectPool keyedObjectPool = new XpipeNettyClientKeyedObjectPool(getKeyedPoolClientFactory());
+		XpipeNettyClientKeyedObjectPool keyedObjectPool = new XpipeNettyClientKeyedObjectPool(getKeyedPoolClientFactory(KEYED_CLIENT_POOL_SIZE));
 		LifecycleHelper.initializeIfPossible(keyedObjectPool);
 		LifecycleHelper.startIfPossible(keyedObjectPool);
 		return keyedObjectPool;
 	}
 
-	private ProxyEnabledNettyKeyedPoolClientFactory getKeyedPoolClientFactory() {
-		ProxyResourceManager resourceManager = new ConsoleProxyResourceManager(
-				new DefaultProxyEndpointManager(()->1), new NaiveNextHopAlgorithm());
-		return new ProxyEnabledNettyKeyedPoolClientFactory(resourceManager);
+	@Bean(name = REDIS_SESSION_NETTY_CLIENT_POOL)
+	public XpipeNettyClientKeyedObjectPool getRedisSessionNettyClientPool() throws Exception {
+		XpipeNettyClientKeyedObjectPool keyedObjectPool = new XpipeNettyClientKeyedObjectPool(getKeyedPoolClientFactory(REDIS_SESSION_CLIENT_POOL_SIZE));
+		LifecycleHelper.initializeIfPossible(keyedObjectPool);
+		LifecycleHelper.startIfPossible(keyedObjectPool);
+		return keyedObjectPool;
+	}
+
+	private ProxyEnabledNettyKeyedPoolClientFactory getKeyedPoolClientFactory(int eventLoopThreads) {
+		ProxyResourceManager resourceManager = new ConsoleProxyResourceManager(new NaiveNextHopAlgorithm());
+		return new ProxyEnabledNettyKeyedPoolClientFactory(eventLoopThreads, resourceManager);
 	}
 
 	@Bean(name = PING_DELAY_EXECUTORS)

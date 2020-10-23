@@ -4,6 +4,7 @@ import com.ctrip.xpipe.api.command.Command;
 import com.ctrip.xpipe.api.command.CommandFuture;
 import com.ctrip.xpipe.api.command.CommandFutureListener;
 import com.ctrip.xpipe.api.migration.OuterClientService;
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.command.SequenceCommandChain;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.redis.console.alert.ALERT_TYPE;
@@ -23,6 +24,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.PostConstruct;
@@ -100,54 +102,50 @@ public class DefaultMigrationSystemAvailableChecker extends AbstractSiteLeaderIn
 
     private Command<RetMessage> checkDatabase() {
         Command<RetMessage> command = builder.checkCommand(CHECK_MIGRATION_SYSTEM_STEP.CHECK_DATA_BASE);
-        checkCommandFuture("Database:", command, lastTimeCheckDatabase, false);
+        checkCommandFuture("Database:", command, lastTimeCheckDatabase);
         return command;
     }
 
     private Command<RetMessage> checkOuterClient() {
         Command<RetMessage> command = builder.checkCommand(CHECK_MIGRATION_SYSTEM_STEP.CHECK_OUTER_CLIENT);
-        checkCommandFuture("OuterClient:", command, lastTimeCheckOuterClient, false);
+        checkCommandFuture("OuterClient:", command, lastTimeCheckOuterClient);
         return command;
     }
 
     private Command<RetMessage> checkMetaServer() {
         Command<RetMessage> command = builder.checkCommand(CHECK_MIGRATION_SYSTEM_STEP.CHECK_METASERVER);
-        checkCommandFuture("MetaServer:", command, lastTimeCheckMetaServer, true);
+        checkCommandFuture("MetaServer:", command, lastTimeCheckMetaServer);
         return command;
     }
 
     private void checkCommandFuture(final String title, final Command<RetMessage> command,
-                                    AtomicLong timestamp, boolean warnInsteadError) {
+                                    AtomicLong timestamp) {
         command.future().addListener(new CommandFutureListener<RetMessage>() {
             @Override
             public void operationComplete(CommandFuture<RetMessage> commandFuture) {
                 timestamp.set(System.currentTimeMillis());
                 if(!commandFuture.isSuccess()) {
-                    warnOrError(title, commandFuture.cause(), warnInsteadError);
+                    warnOrError(title, commandFuture.cause());
                 } else {
                     RetMessage retMessage = commandFuture.getNow();
                     if(retMessage.getState() != RetMessage.SUCCESS_STATE) {
-                        warnOrError(title, retMessage.getMessage(), warnInsteadError);
+                        warnOrError(title, retMessage);
                     }
                 }
             }
         });
     }
 
-    private void warnOrError(final String title, final String message, boolean warnInsteadError) {
-        if(!warnInsteadError) {
-            getResult().addErrorMessage(title, message);
+    private void warnOrError(final String title, final RetMessage message) {
+        if(message.getState() == RetMessage.FAIL_STATE) {
+            getResult().addErrorMessage(title, message.getMessage());
         } else {
-            getResult().addWarningMessage(title + message);
+            getResult().addWarningMessage(title + message.getMessage());
         }
     }
 
-    private void warnOrError(final String title, final Throwable throwable, boolean warnInsteadError) {
-        if(!warnInsteadError) {
-            getResult().addErrorMessage(title, throwable);
-        } else {
-            getResult().addWarningMessage(title, throwable);
-        }
+    private void warnOrError(final String title, final Throwable throwable) {
+        getResult().addErrorMessage(title, throwable);
     }
 
     private void checkIfCheckCommandDelay() {
@@ -175,5 +173,14 @@ public class DefaultMigrationSystemAvailableChecker extends AbstractSiteLeaderIn
     @VisibleForTesting
     protected CheckMigrationCommandBuilder getBuilder() {
         return builder;
+    }
+
+    @Override
+    protected boolean shouldCheck() {
+        if (!super.shouldCheck()) return false;
+
+        // only check migration system when the cluster in manage can migrate
+        Set<String> ownTypes =  consoleConfig.getOwnClusterType();
+        return null != ownTypes && ownTypes.stream().anyMatch(type -> ClusterType.lookup(type).supportMigration());
     }
 }

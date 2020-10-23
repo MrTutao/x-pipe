@@ -2,13 +2,16 @@ package com.ctrip.xpipe.redis.meta.server.config;
 
 import com.ctrip.xpipe.api.codec.Codec;
 import com.ctrip.xpipe.api.foundation.FoundationService;
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.redis.core.meta.DcInfo;
 import com.ctrip.xpipe.utils.IpUtils;
 import com.ctrip.xpipe.zk.ZkConfig;
 import com.google.common.collect.Maps;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author wenchao.meng
@@ -17,9 +20,9 @@ import java.util.Map;
  */
 public class UnitTestServerConfig implements MetaServerConfig{
 
-	private String zkAddress = "localhost:2181";
+	private String zkAddress = "127.0.0.1:2181";
 
-	private String consoleAddress = "http://localhost:9000";
+	private String consoleAddress = "http://127.0.0.1:9000";
 	
 	private String zkNameSpace = ZkConfig.DEFAULT_ZK_NAMESPACE;
 
@@ -28,6 +31,8 @@ public class UnitTestServerConfig implements MetaServerConfig{
 	private int metaServerPort = 9747;
 
 	private int waitforOffsetMilli = 1000;
+
+	private int waitForMetaSyncDelayMilli = 0;
 	
 	public UnitTestServerConfig(){
 		
@@ -65,7 +70,7 @@ public class UnitTestServerConfig implements MetaServerConfig{
 
 	@Override
 	public String getMetaServerIp() {
-		return IpUtils.getFistNonLocalIpv4ServerAddress().getHostAddress();
+		return "127.0.0.1";
 	}
 
 
@@ -127,8 +132,32 @@ public class UnitTestServerConfig implements MetaServerConfig{
 		return true;
 	}
 
+	@Override
+	public int getKeeperInfoCheckInterval() {
+		return 1;
+	}
+
 	public UnitTestServerConfig setWaitforOffsetMilli(int waitforOffsetMilli) {
 		this.waitforOffsetMilli = waitforOffsetMilli;
 		return this;
+	}
+
+	public void setWaitForMetaSyncDelayMilli(int delayMilli) {
+		this.waitForMetaSyncDelayMilli = delayMilli;
+	}
+
+	@Override
+	public int getWaitForMetaSyncDelayMilli() {
+		return waitForMetaSyncDelayMilli;
+	}
+
+	@Override
+	public Set<String> getOwnClusterType() {
+		return Collections.singleton(ClusterType.ONE_WAY.toString());
+	}
+
+	@Override
+	public boolean shouldCorrectPeerMasterPeriodically() {
+		return true;
 	}
 }

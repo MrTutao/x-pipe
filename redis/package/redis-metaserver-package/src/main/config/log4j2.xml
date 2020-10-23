@@ -16,9 +16,9 @@
             <PatternLayout pattern="[%d{HH:mm:ss:SSS}][%p][%t][%c{1}]%m%xpEx%n"/>
             <Policies>
                 <TimeBasedTriggeringPolicy/>
-                <SizeBasedTriggeringPolicy size="500 MB"/>
+                <SizeBasedTriggeringPolicy size="1 GB"/>
             </Policies>
-			<DefaultRolloverStrategy max="10">
+			<DefaultRolloverStrategy max="20">
 				<Delete basePath="${baseDir}" maxDepth="2">
 					<IfFileName glob="${appName}*.log.gz" />
 					<IfLastModified age="30d" />
@@ -59,7 +59,6 @@
             <appender-ref ref="zkLogFile"/>
             <appender-ref ref="catAppender4Log4j2"/>
         </logger>
-
         <root level="INFO">
             <appender-ref ref="rollingFileInfo"/>
             <appender-ref ref="catAppender4Log4j2"/>

@@ -170,6 +170,70 @@ public enum ALERT_TYPE {
             return new DetailDesc("Instance Mark Down", "说明：从机房Redis健康检测出问题，会将Redis拉出集群");
         }
     },
+    CRDT_INSTANCE_UP("crdt instance up", EMAIL_DBA) {
+        @Override
+        public boolean urgent() {
+            return false;
+        }
+
+        @Override
+        public boolean reportRecovery() {
+            return false;
+        }
+
+        @Override
+        public DetailDesc detailDesc() {
+            return new DetailDesc("crdt instance up", "crdt instance in local dc is healthy");
+        }
+    },
+    CRDT_INSTANCE_DOWN("crdt instance down", EMAIL_DBA) {
+        @Override
+        public boolean urgent() {
+            return false;
+        }
+
+        @Override
+        public boolean reportRecovery() {
+            return false;
+        }
+
+        @Override
+        public DetailDesc detailDesc() {
+            return new DetailDesc("crdt instance down", "crdt instance in local dc is unhealthy");
+        }
+    },
+    CRDT_CROSS_DC_REPLICATION_UP("crdt cross dc replication up", EMAIL_DBA) {
+        @Override
+        public boolean urgent() {
+            return false;
+        }
+
+        @Override
+        public boolean reportRecovery() {
+            return false;
+        }
+
+        @Override
+        public DetailDesc detailDesc() {
+            return new DetailDesc("crdt cross dc replication up", "crdt replication between cross dc master is healthy");
+        }
+    },
+    CRDT_CROSS_DC_REPLICATION_DOWN("crdt cross dc replication down", EMAIL_DBA) {
+        @Override
+        public boolean urgent() {
+            return false;
+        }
+
+        @Override
+        public boolean reportRecovery() {
+            return false;
+        }
+
+        @Override
+        public DetailDesc detailDesc() {
+            return new DetailDesc("crdt cross dc replication down", "crdt replication between cross dc master is unhealthy");
+        }
+    },
     ALERT_SYSTEM_OFF("alert system is turning off", EMAIL_DBA | EMAIL_XPIPE_ADMIN) {
         @Override
         public boolean urgent() {
@@ -280,6 +344,55 @@ public enum ALERT_TYPE {
         @Override
         public DetailDesc detailDesc() {
             return new DetailDesc("DR迁移检测系统停止工作", "针对DR迁移系统的检测工作长时间停止, 则会报出此信息");
+        }
+    },
+    META_CACHE_BLOCKED("MetaCache_Not_Updated", EMAIL_XPIPE_ADMIN) {
+        @Override
+        public boolean urgent() {
+            return false;
+        }
+
+        @Override
+        public boolean reportRecovery() {
+            return false;
+        }
+
+        @Override
+        public DetailDesc detailDesc() {
+            return new DetailDesc("MetaCache not working", "Not working for a long time");
+        }
+    },
+    SENTINEL_CONFIG_MISSING("sentinel config missing", EMAIL_XPIPE_ADMIN) {
+        @Override
+        public boolean urgent() {
+            return false;
+        }
+
+        @Override
+        public boolean reportRecovery() {
+            return false;
+        }
+
+        @Override
+        public DetailDesc detailDesc() {
+            return new DetailDesc("sentinel config missing",
+                    "Sentinels config is not found in db");
+        }
+    },
+    DB_VARIABLES_INVALIDATE("DB variables not as expected", EMAIL_XPIPE_ADMIN) {
+        @Override
+        public boolean urgent() {
+            return false;
+        }
+
+        @Override
+        public boolean reportRecovery() {
+            return false;
+        }
+
+        @Override
+        public DetailDesc detailDesc() {
+            return new DetailDesc("DB variables not as expected", "XPipe need some special DB variables");
         }
     };
 

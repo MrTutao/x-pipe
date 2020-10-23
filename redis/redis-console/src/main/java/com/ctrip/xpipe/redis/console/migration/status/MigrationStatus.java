@@ -18,8 +18,8 @@ public enum MigrationStatus {
 	CheckingFail(MigrationCheckingFailState.class, ClusterStatus.Lock, false, 10, MigrationStatus.TYPE_PROCESSING),
 	Migrating(MigrationMigratingState.class, ClusterStatus.Migrating, false, 30, MigrationStatus.TYPE_PROCESSING),
 	PartialSuccess(MigrationPartialSuccessState.class, ClusterStatus.Migrating, false, 40, MigrationStatus.TYPE_PROCESSING),
-	Publish(MigrationPublishState.class, ClusterStatus.TmpMigrated, false, 80, MigrationStatus.TYPE_PROCESSING),
-	PublishFail(MigrationPublishState.class, ClusterStatus.TmpMigrated, false, 80, MigrationStatus.TYPE_PROCESSING),
+	Publish(MigrationPublishState.class, ClusterStatus.Migrating, false, 80, MigrationStatus.TYPE_PROCESSING),
+	PublishFail(MigrationPublishState.class, ClusterStatus.Migrating, false, 80, MigrationStatus.TYPE_PROCESSING),
 	RollBack(MigrationPartialSuccessRollBackState.class, ClusterStatus.Rollback, false, 30, MigrationStatus.TYPE_PROCESSING),
 
 	Aborted(MigrationAbortedState.class, ClusterStatus.Normal, true, 100, MigrationStatus.TYPE_FAIL),
@@ -30,6 +30,7 @@ public enum MigrationStatus {
 	public static final String TYPE_PROCESSING = "Processing";
 	public static final String TYPE_SUCCESS = "Success";
 	public static final String TYPE_FAIL = "Fail";
+	public static final String TYPE_WARNING = "Warning";
 
 	private final  Class<MigrationState> classMigrationState;
 	private final ClusterStatus clusterStatus;

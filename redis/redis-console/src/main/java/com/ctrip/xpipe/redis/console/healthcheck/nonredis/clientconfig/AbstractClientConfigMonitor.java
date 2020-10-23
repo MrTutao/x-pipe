@@ -1,6 +1,8 @@
 package com.ctrip.xpipe.redis.console.healthcheck.nonredis.clientconfig;
 
+import com.ctrip.xpipe.api.foundation.FoundationService;
 import com.ctrip.xpipe.api.migration.OuterClientService;
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.redis.console.alert.ALERT_TYPE;
 import com.ctrip.xpipe.redis.console.alert.AlertManager;
@@ -36,6 +38,8 @@ public class AbstractClientConfigMonitor extends AbstractIntervalCheck {
     @Autowired
     private AlertManager alertManager;
 
+    private static final String currentDcId = FoundationService.DEFAULT.getDataCenter();
+
     @Override
     protected void doCheck() {
 
@@ -43,13 +47,32 @@ public class AbstractClientConfigMonitor extends AbstractIntervalCheck {
 
         XpipeMeta xpipeMeta = metaCache.getXpipeMeta();
 
-        Set<String> clusters = getClusters(xpipeMeta);
+        // check for local dc meta only
+        for (DcMeta dcMeta : xpipeMeta.getDcs().values()) {
+            if (!dcMeta.getId().equalsIgnoreCase(currentDcId)) {
+                continue;
+            }
+            for (ClusterMeta clusterMeta : dcMeta.getClusters().values()) {
+                ClusterType clusterType = ClusterType.lookup(clusterMeta.getType());
+                if (clusterType.supportSingleActiveDC()
+                        && !clusterMeta.getActiveDc().equalsIgnoreCase(currentDcId)) {
+                    continue;
+                }
+                if (clusterType.supportMultiActiveDC()) {
+                    // only check client config in the first dc for multi active dc cluster
+//                    String[] dcs = clusterMeta.getDcs().split("\\s*,\\s*");
+//                    if (dcs.length > 0 && !dcs[0].equalsIgnoreCase(currentDcId)) {
+//                        continue;
+//                    }
+                    // TODO: recovery check after crdt redis stable
+                    continue;
+                }
+                try {
+                    checkCluster(clusterMeta.getId(), xpipeMeta);
+                } catch (Exception e) {
+                    logger.info("[doCheck][{}]{}" + clusterMeta.getId(), e);
+                }
 
-        for (String cluster : clusters) {
-            try {
-                checkCluster(cluster, xpipeMeta);
-            } catch (Exception e) {
-                logger.info("[doCheck]" + cluster, e);
             }
         }
     }
@@ -153,17 +176,6 @@ public class AbstractClientConfigMonitor extends AbstractIntervalCheck {
             }
         }
         return result;
-    }
-
-
-    public Set<String> getClusters(XpipeMeta xpipeMeta) {
-
-        DcMeta[] dcMetas = xpipeMeta.getDcs().values().toArray(new DcMeta[0]);
-
-        if (dcMetas.length == 0) {
-            return new HashSet<>();
-        }
-        return new HashSet<>(dcMetas[0].getClusters().keySet());
     }
 
 }

@@ -3,6 +3,7 @@ package com.ctrip.xpipe.netty.commands;
 import com.ctrip.xpipe.api.endpoint.Endpoint;
 import com.ctrip.xpipe.lifecycle.AbstractStartStoppable;
 import com.ctrip.xpipe.netty.NettySimpleMessageHandler;
+import com.ctrip.xpipe.utils.FastThreadLocalThreadFactory;
 import com.ctrip.xpipe.utils.XpipeThreadFactory;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
@@ -23,11 +24,11 @@ import org.slf4j.LoggerFactory;
  */
 public class NettyKeyedPoolClientFactory extends AbstractStartStoppable implements KeyedPooledObjectFactory<Endpoint, NettyClient> {
 
-	public static final int DEFAULT_KEYED_POOLED_CLIENT_FACTORY_EVNET_LOOP_THREAD = Integer.parseInt(System.getProperty("KEYED_POOLED_CLIENT_FACTORY_EVNET_LOOP_THREAD", "8"));
+	public static final int DEFAULT_KEYED_POOLED_CLIENT_FACTORY_EVNET_LOOP_THREAD = Integer.parseInt(System.getProperty("KEYED_POOLED_CLIENT_FACTORY_EVNET_LOOP_THREAD", "12"));
 	private int eventLoopThreads;
 	protected NioEventLoopGroup eventLoopGroup;
 	protected Bootstrap b = new Bootstrap();
-	protected int connectTimeoutMilli = 2000;
+	protected int connectTimeoutMilli = 1000;
 	private static Logger logger = LoggerFactory.getLogger(NettyKeyedPoolClientFactory.class);
 
 	public NettyKeyedPoolClientFactory() {
@@ -42,12 +43,13 @@ public class NettyKeyedPoolClientFactory extends AbstractStartStoppable implemen
 	@Override
 	protected void doStart() throws Exception {
 		
-		eventLoopGroup = new NioEventLoopGroup(eventLoopThreads, XpipeThreadFactory.create("NettyKeyedPoolClientFactory"));
+		eventLoopGroup = new NioEventLoopGroup(eventLoopThreads, FastThreadLocalThreadFactory.create("NettyKeyedPoolClientFactory"));
 		initBootstrap();
 	}
 
 	protected void initBootstrap() {
 		b.group(eventLoopGroup).channel(NioSocketChannel.class)
+				.option(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(512))
 				.option(ChannelOption.TCP_NODELAY, true)
 				.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeoutMilli)
 				.handler(new ChannelInitializer<SocketChannel>() {

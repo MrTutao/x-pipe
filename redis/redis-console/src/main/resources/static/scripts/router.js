@@ -88,9 +88,14 @@ index_module.config(function ($stateProvider, $urlRouterProvider) {
             controller: 'ClusterDcCtl'
         })
         .state('cluster_list', {
-            url: '/cluster_list?clusterName&dcName&type',
+            url: '/cluster_list?clusterName&dcName&type?keepercontainer',
             templateUrl: 'views/index/cluster_list.html',
             controller: 'ClusterListCtl'
+        })
+        .state('shard_list', {
+            url: '/shard_list',
+            templateUrl: 'views/index/shard_list.html',
+            controller: 'ShardListCtl'
         })
         .state('cluster_form', {
             url: '/cluster_form?clusterName&type',
@@ -104,7 +109,7 @@ index_module.config(function ($stateProvider, $urlRouterProvider) {
         	controller: 'ActiveDcMigrationIndexCtl'
         })
         .state('migration_event_list', {
-        	url: '/migration_event_list',
+        	url: '/migration_event_list?clusterName',
         	templateUrl: 'views/index/migration_list.html',
         	controller: 'ActiveDcMigrationEventListCtl'
         })
@@ -129,6 +134,11 @@ index_module.config(function ($stateProvider, $urlRouterProvider) {
             },
         	templateUrl: 'views/index/migration_details_content.html',
         	controller : 'ActiveDcMigrationEventDetailsContentCtl'
+        })
+        .state('keepercontainer_list', {
+            url: '/keepercontainers',
+            templateUrl: 'views/index/keepercontainer_list.html',
+            controller : 'KeeperContainerListCtl',
         });
 
 });

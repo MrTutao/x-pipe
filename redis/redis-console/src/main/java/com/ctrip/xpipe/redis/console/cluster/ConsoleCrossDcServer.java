@@ -4,26 +4,28 @@ import com.ctrip.xpipe.api.cluster.CrossDcClusterServer;
 import com.ctrip.xpipe.api.cluster.CrossDcLeaderAware;
 import com.ctrip.xpipe.api.cluster.LeaderAware;
 import com.ctrip.xpipe.api.foundation.FoundationService;
-import com.ctrip.xpipe.concurrent.AbstractExceptionLogTask;
+import com.ctrip.xpipe.api.monitor.EventMonitor;
+import com.ctrip.xpipe.api.observer.Observable;
+import com.ctrip.xpipe.api.observer.Observer;
+import com.ctrip.xpipe.exception.XpipeException;
 import com.ctrip.xpipe.lifecycle.AbstractStartStoppable;
-import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
+import com.ctrip.xpipe.redis.console.election.CrossDcLeaderElectionAction;
+import com.ctrip.xpipe.redis.console.model.ConfigModel;
+import com.ctrip.xpipe.redis.console.service.ConfigService;
 import com.ctrip.xpipe.spring.AbstractProfile;
-import com.ctrip.xpipe.utils.XpipeThreadFactory;
+import com.ctrip.xpipe.utils.VisibleForTesting;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import org.xbill.DNS.*;
+import org.unidal.dal.jdbc.DalException;
 
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
  * @author wenchao.meng
@@ -32,111 +34,53 @@ import java.util.concurrent.TimeUnit;
  */
 @Component
 @Profile(AbstractProfile.PROFILE_NAME_PRODUCTION)
-public class ConsoleCrossDcServer extends AbstractStartStoppable implements CrossDcClusterServer, LeaderAware, ApplicationContextAware{
+public class ConsoleCrossDcServer extends AbstractStartStoppable implements CrossDcClusterServer, LeaderAware, Observer, ApplicationContextAware{
 
     @Autowired
-    private ConsoleConfig consoleConfig;
+    private ConsoleLeaderElector consoleLeaderElector;
 
-    private int checkIntervalMilli = Integer.parseInt(System.getProperty("CROSS_DC_CHECK_INTERVAL_MILLI", "5000"));
+    @Autowired
+    private CrossDcLeaderElectionAction electionAction;
+
+    @Autowired
+    private ConfigService configService;
 
     private volatile boolean crossDcLeader = false;
-
-    private ScheduledExecutorService scheduled = Executors.newScheduledThreadPool(1, XpipeThreadFactory.create("CrossDcServer"));
-
-    private ScheduledFuture future;
 
     private ApplicationContext applicationContext;
 
     @Override
     public boolean amILeader() {
-
         return crossDcLeader;
     }
 
 
     @Override
     protected void doStart() throws Exception {
-
-        future = scheduled.scheduleWithFixedDelay(new AbstractExceptionLogTask() {
-
-            @Override
-            protected void doRun() throws Exception {
-
-                checkDnsCurrentDc();
-
-            }
-
-        }, checkIntervalMilli, checkIntervalMilli, TimeUnit.MILLISECONDS);
+        electionAction.addObserver(this);
+        electionAction.start();
     }
 
-    private void checkDnsCurrentDc() {
+    @Override
+    public void update(Object crossDcLeader, Observable observable) {
+        triggerElection((String) crossDcLeader);
+    }
 
-        String domain = consoleConfig.getConsoleDomain();
-
-        List<String> cnames = null;
-        try {
-            cnames = lookUpCname(domain);
-        } catch (TextParseException e) {
-            logger.error("[checkDnsCurrentDc]" + domain, e);
-        }
-
-        if (cnames == null) {
+    private void triggerElection(String dcName) {
+        if(!consoleLeaderElector.amILeader()) {
+            setCrossDcLeader(false, "[triggerElection]not site leader, quit for cross-site leader election");
             return;
         }
-
-        if (cnames.size() == 0) {
-            //only one dc
-            setCrossDcLeader(true, "cnames size == 0");
-            return;
-        }
-
-        String currentDc = FoundationService.DEFAULT.getDataCenter();
-        Map<String, String> consoleCnameToDc = consoleConfig.getConsoleCnameToDc();
-
-        for (String cname : cnames) {
-
-            String dc = consoleCnameToDc.get(cname);
-            if (currentDc.equalsIgnoreCase(dc)) {
-                //is dc leader
-                setCrossDcLeader(true, String.format("[good]current dc %s, cname:%s, cnametodc:%s", currentDc, cname, consoleCnameToDc));
-                return;
-            }
-        }
-
-        setCrossDcLeader(false, String.format("[bad]current dc %s, cname:%s, cnametodc:%s", currentDc, cnames, consoleCnameToDc));
+        boolean crossDcLeader = FoundationService.DEFAULT.getDataCenter().equalsIgnoreCase(dcName);
+        String reason = (null == dcName) ? "no leader is elected"
+                : String.format("[result] cross dc leader set to %s by elect", dcName);
+        setCrossDcLeader(crossDcLeader, reason);
     }
-
-    protected List<String> lookUpCname(String domain) throws TextParseException {
-
-        List<String> cnameRecords = new LinkedList<>();
-
-        Record[] records = new Lookup(domain, Type.CNAME).run();
-
-        if (records != null) {
-
-            for (int i = 0; i < records.length; i++) {
-
-                CNAMERecord cnameRecord = (CNAMERecord) records[i];
-                Name target = cnameRecord.getTarget();
-                String cname = target.toString();
-                if (cname.endsWith(".")) {
-                    cname = cname.substring(0, cname.length() - 1);
-                }
-                cnameRecords.add(cname);
-            }
-        }
-        logger.debug("[lookUpCname]{}", cnameRecords);
-        return cnameRecords;
-    }
-
 
     @Override
     protected void doStop() throws Exception {
-
-        if (future != null) {
-            logger.info("[doStop][cancel future]{}", future);
-            future.cancel(true);
-        }
+        electionAction.removeObserver(this);
+        electionAction.stop();
     }
 
 
@@ -150,6 +94,7 @@ public class ConsoleCrossDcServer extends AbstractStartStoppable implements Cros
         try {
             //become dc leader
             start();
+            triggerElection(configService.getCrossDcLeader());
         } catch (Exception e) {
             logger.error("[isCrossDcLeader]", e);
         }
@@ -179,11 +124,38 @@ public class ConsoleCrossDcServer extends AbstractStartStoppable implements Cros
 
         if(!previous && crossDcLeader){
             logger.info("[becomeLeader]{}", reason);
+            EventMonitor.DEFAULT.logEvent("XPIPE.LEADER.CHANGE", "BECOME.LEADER");
             becomeLeader();
         }else if(previous && !crossDcLeader){
             logger.info("[loseLeader]{}", reason);
+            EventMonitor.DEFAULT.logEvent("XPIPE.LEADER.CHANGE", "LOSE.LEADER");
             loseLeader();
         }
+    }
+
+    public void forceSetCrossLeader(ConfigModel config, Date until) throws XpipeException {
+        if(!consoleLeaderElector.amILeader()) {
+            throw new XpipeException("not dc leader");
+        }
+
+        try {
+            configService.updateCrossDcLeader(config, until);
+        } catch (Exception e) {
+            throw new XpipeException("success but update lease to dc fail, " + e.getMessage());
+        } finally {
+            long nextElectionDelayMilliSecond = until.getTime() - new Date().getTime();
+            electionAction.resetNextElection(Math.max(nextElectionDelayMilliSecond, 0));
+            triggerElection(config.getVal());
+        }
+    }
+
+    public void refreshCrossLeaderStatus() throws XpipeException, DalException {
+        if(!consoleLeaderElector.amILeader()) {
+            throw new XpipeException("not dc leader");
+        }
+        triggerElection(configService.getCrossDcLeader());
+
+        electionAction.resetNextElection(0);
     }
 
     private void loseLeader() {
@@ -222,16 +194,27 @@ public class ConsoleCrossDcServer extends AbstractStartStoppable implements Cros
         }
     }
 
-    public void setConsoleConfig(ConsoleConfig consoleConfig) {
-        this.consoleConfig = consoleConfig;
+    @VisibleForTesting
+    protected ConsoleCrossDcServer setConsoleLeaderElector(ConsoleLeaderElector consoleLeaderElector) {
+        this.consoleLeaderElector = consoleLeaderElector;
+        return this;
     }
 
-    public void setCheckIntervalMilli(int checkIntervalMilli) {
-        this.checkIntervalMilli = checkIntervalMilli;
+    @VisibleForTesting
+    protected ConsoleCrossDcServer setCrossDcLeaderElectionAction(CrossDcLeaderElectionAction electionAction) {
+        this.electionAction = electionAction;
+        return this;
+    }
+
+    @VisibleForTesting
+    protected ConsoleCrossDcServer setConfigService(ConfigService configService) {
+        this.configService = configService;
+        return this;
     }
 
     @Override
     public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
         this.applicationContext = applicationContext;
     }
+
 }

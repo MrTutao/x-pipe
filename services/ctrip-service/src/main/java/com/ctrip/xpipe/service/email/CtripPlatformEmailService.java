@@ -39,10 +39,9 @@ public class CtripPlatformEmailService implements EmailService {
 
     private static final String TYPE = "SOA.EMAIL.SERVICE";
 
-    private static EmailServiceClient client = EmailServiceClient.getInstance();
+    private static EmailConfig config = new EmailConfig();
 
-    private static final ScheduledExecutorService scheduled = Executors.newSingleThreadScheduledExecutor(
-            XpipeThreadFactory.create(CtripPlatformEmailService.class.getSimpleName()));
+    private static EmailServiceClient client = EmailServiceClient.getInstance(config.getEmailServiceUrl());
 
     @Override
     public void sendEmail(Email email) {
@@ -64,17 +63,12 @@ public class CtripPlatformEmailService implements EmailService {
             }
 
         } catch (Exception e) {
-            logger.error("[sendEmail]Email service Error\n {}", e);
-            Throwable th = e;
-            while(th.getCause() instanceof XpipeRuntimeException) {
-                th = th.getCause();
-            }
-            throw new XpipeRuntimeException(th.getMessage());
+            logger.error("[sendEmail]Email service Error\n", e);
         }
     }
 
     private static final Pattern VALID_EMAIL_ADDRESS_REGEX =
-            Pattern.compile("^[A-Z0-9._%+-]+@Ctrip.com$", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("^[A-Z0-9._%+-]+@C?trip.com$", Pattern.CASE_INSENSITIVE);
 
     @Override
     public CheckEmailResponse checkEmailAddress(String address) {
@@ -83,7 +77,7 @@ public class CtripPlatformEmailService implements EmailService {
         if(result) {
             return new CheckEmailResponse(true);
         } else {
-            return new CheckEmailResponse(false, "Emails should be ctrip emails and separated by comma or semicolon");
+            return new CheckEmailResponse(false, "Emails should be ctrip/trip emails and separated by comma or semicolon");
         }
     }
 
@@ -106,10 +100,10 @@ public class CtripPlatformEmailService implements EmailService {
             GetEmailStatusResponse emailStatusResponse = client.getEmailStatus(
                     new GetEmailStatusRequest(CtripAlertEmailTemplate.SEND_CODE, emailIDList));
 
-            logger.info("[checkAsyncEmailResult]Email sent out result: {}", emailStatusResponse);
+            logger.debug("[checkAsyncEmailResult]Email sent out result: {}", emailStatusResponse);
             return emailStatusResponse.getResultCode() == 1;
         }catch (Exception e) {
-            logger.error("check email send response error: {}", e);
+            logger.error("check email send response error: ", e);
         }
         return false;
     }

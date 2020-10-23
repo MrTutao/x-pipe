@@ -7,7 +7,7 @@ import com.ctrip.xpipe.redis.console.model.ClusterModel;
 import com.ctrip.xpipe.redis.console.model.ClusterTbl;
 import com.ctrip.xpipe.redis.console.model.DcClusterTbl;
 import com.ctrip.xpipe.redis.console.model.DcTbl;
-import com.ctrip.xpipe.redis.console.model.consoleportal.ClusterListClusterModel;
+import com.ctrip.xpipe.redis.console.model.consoleportal.ClusterListUnhealthyClusterModel;
 import com.ctrip.xpipe.redis.console.service.ClusterService;
 import com.ctrip.xpipe.redis.console.service.DcClusterService;
 import com.ctrip.xpipe.redis.console.service.DcService;
@@ -69,8 +69,8 @@ public class ClusterController extends AbstractConsoleController {
     }
 
     @RequestMapping(value = "/clusters/unhealthy", method = RequestMethod.GET)
-    public List<ClusterListClusterModel> findUnhealthyClusters() {
-        return valueOrEmptySet(ClusterListClusterModel.class, clusterService.findUnhealthyClusters());
+    public List<ClusterListUnhealthyClusterModel> findUnhealthyClusters() {
+        return valueOrEmptySet(ClusterListUnhealthyClusterModel.class, clusterService.findUnhealthyClusters());
     }
 
     private List<ClusterTbl> joinClusterAndDcCluster(List<ClusterTbl> clusters, List<DcClusterTbl> dcClusters) {
@@ -133,7 +133,7 @@ public class ClusterController extends AbstractConsoleController {
     @RequestMapping(value = "/clusters/activeDc/{dcName}", method = RequestMethod.GET)
     public List<ClusterTbl> findClustersByActiveDcName(@PathVariable String dcName){
         logger.info("[findClustersByActiveDcName]dcName: {}", dcName);
-        return clusterService.findAllClustersByDcName(dcName);
+        return clusterService.findActiveClustersByDcName(dcName);
     }
 
     @RequestMapping(value = "/clusters/master/unhealthy/{level}", method = RequestMethod.GET)
@@ -149,6 +149,12 @@ public class ClusterController extends AbstractConsoleController {
             return clusterHealthMonitorManager.getWarningClusters(state);
         }
         return Sets.newHashSet();
+    }
+
+    @RequestMapping(value = "/clusters/keepercontainer/{containerId}", method = RequestMethod.GET)
+    public List<ClusterTbl> findClusterByKeeperContainer(@PathVariable Long containerId) {
+        if (null == containerId || containerId <= 0) return Collections.emptyList();
+        return clusterService.findAllClusterByKeeperContainer(containerId);
     }
 
 }

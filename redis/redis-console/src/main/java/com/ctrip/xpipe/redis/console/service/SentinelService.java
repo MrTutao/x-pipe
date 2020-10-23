@@ -1,5 +1,6 @@
 package com.ctrip.xpipe.redis.console.service;
 
+import com.ctrip.xpipe.redis.console.controller.api.RetMessage;
 import com.ctrip.xpipe.redis.console.model.SentinelModel;
 import com.ctrip.xpipe.redis.console.model.SentinelUsageModel;
 import com.ctrip.xpipe.redis.console.model.SetinelTbl;
@@ -24,4 +25,10 @@ public interface SentinelService {
 	Map<String, SentinelUsageModel> getAllSentinelsUsage();
 
 	SentinelModel updateSentinelTblAddr(SentinelModel sentinel);
+
+	RetMessage removeSentinelMonitor(String clusterName);
+
+	void delete(long id);
+
+	void reheal(long id);
 }

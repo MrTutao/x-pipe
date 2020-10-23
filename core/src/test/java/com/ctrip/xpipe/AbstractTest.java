@@ -1,7 +1,9 @@
 package com.ctrip.xpipe;
 
 import com.ctrip.xpipe.api.codec.Codec;
+import com.ctrip.xpipe.api.command.RequestResponseCommand;
 import com.ctrip.xpipe.api.lifecycle.ComponentRegistry;
+import com.ctrip.xpipe.command.AbstractCommand;
 import com.ctrip.xpipe.endpoint.DefaultEndPoint;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.exception.DefaultExceptionHandler;
@@ -20,6 +22,7 @@ import com.ctrip.xpipe.testutils.ByteBufReleaseWrapper;
 import com.ctrip.xpipe.utils.OsUtils;
 import com.ctrip.xpipe.utils.XpipeThreadFactory;
 import com.ctrip.xpipe.zk.ZkTestServer;
+import com.google.common.collect.Lists;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.util.ResourceLeakDetector;
@@ -34,12 +37,11 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.Charset;
-import java.util.HashSet;
-import java.util.Properties;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -53,7 +55,7 @@ public class AbstractTest {
 
     protected Logger logger = LoggerFactory.getLogger(getClass());
 
-    private ByteBufAllocator allocator = ByteBufAllocator.DEFAULT;
+    protected ByteBufAllocator allocator = ByteBufAllocator.DEFAULT;
 
     public static String KEY_INCRMENTAL_ZK_PORT = "INCRMENTAL_ZK_PORT";
 
@@ -62,6 +64,8 @@ public class AbstractTest {
     protected ScheduledExecutorService scheduled;
 
     private ComponentRegistry componentRegistry;
+
+    public static final String LOCAL_HOST = "127.0.0.1";
 
     @Rule
     public TestName name = new TestName();
@@ -747,4 +751,112 @@ public class AbstractTest {
 
     protected void doAfterAbstractTest() throws Exception {
     }
+
+    public static class BlockingCommand extends AbstractCommand<Void> implements RequestResponseCommand<Void> {
+
+        private int sleepTime;
+
+        private int timeout;
+
+        private volatile boolean processing = false;
+
+        public BlockingCommand(int sleepTime) {
+            this.sleepTime = sleepTime;
+        }
+
+        public boolean isProcessing() {
+            return processing;
+        }
+
+        @Override
+        protected void doExecute() throws Exception {
+            processing = true;
+            Thread.sleep(sleepTime);
+            future().setSuccess();
+        }
+
+        @Override
+        protected void doReset() {
+
+        }
+
+        @Override
+        public String getName() {
+            return getClass().getSimpleName();
+        }
+
+        @Override
+        public int getCommandTimeoutMilli() {
+            return timeout;
+        }
+
+        public BlockingCommand setTimeout(int timeout) {
+            this.timeout = timeout;
+            return this;
+        }
+    }
+
+    public static class CountingCommand extends AbstractCommand<Void> implements RequestResponseCommand<Void> {
+
+        private AtomicInteger counter;
+
+        private int sleepTime;
+
+        private int timeout;
+
+        public CountingCommand(AtomicInteger counter, int sleepTime) {
+            this.counter = counter;
+            this.sleepTime = sleepTime;
+        }
+
+        @Override
+        protected void doExecute() throws Exception {
+            Thread.sleep(sleepTime);
+            counter.incrementAndGet();
+            future().setSuccess();
+        }
+
+        @Override
+        protected void doReset() {
+            counter.decrementAndGet();
+        }
+
+        @Override
+        public String getName() {
+            return getClass().getSimpleName();
+        }
+
+        @Override
+        public int getCommandTimeoutMilli() {
+            return timeout;
+        }
+
+        public CountingCommand setTimeout(int timeout) {
+            this.timeout = timeout;
+            return this;
+        }
+    }
+
+    protected String getTimeoutIp() {
+        List<String> ipam = Lists.newArrayList("192.0.0.0", "192.0.0.1", "127.0.0.0", "10.0.0.1", "10.0.0.0");
+        for(String ip : ipam) {
+            Socket socket = new Socket();
+            try {
+                socket.connect(new InetSocketAddress(ip, 6379), 100);
+            } catch (IOException e) {
+                if(e instanceof SocketTimeoutException) {
+                    return ip;
+                }
+            } finally {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+
+                }
+            }
+
+        }
+        return "127.0.0.2";
+    }
+
 }

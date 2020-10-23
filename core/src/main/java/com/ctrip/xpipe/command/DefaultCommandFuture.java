@@ -17,11 +17,11 @@ import java.util.concurrent.*;
  */
 public class DefaultCommandFuture<V> implements CommandFuture<V>{
 	
-	private Logger logger = LoggerFactory.getLogger(getClass());
+	private static final Logger logger = LoggerFactory.getLogger(DefaultCommandFuture.class);
 	
 	private volatile Object result = null;
 	
-	private final CauseHolder CANCELLED_RESULT = new CauseHolder(new CancellationException());
+	private final static CauseHolder CANCELLED_RESULT = new CauseHolder(new CancellationException());
 	
 	private static final String SUCCESS_NO_RESULT = "SUCCESS_NO_RESULT";
 	

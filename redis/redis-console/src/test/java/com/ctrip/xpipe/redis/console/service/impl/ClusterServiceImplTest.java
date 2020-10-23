@@ -1,21 +1,22 @@
 package com.ctrip.xpipe.redis.console.service.impl;
 
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.redis.console.dao.ClusterDao;
 import com.ctrip.xpipe.redis.console.migration.status.ClusterStatus;
 import com.ctrip.xpipe.redis.console.model.*;
-import com.ctrip.xpipe.redis.console.service.ClusterService;
-import com.ctrip.xpipe.redis.console.service.DcService;
-import com.ctrip.xpipe.redis.console.service.OrganizationService;
-import com.ctrip.xpipe.redis.console.service.ShardService;
-import com.ctrip.xpipe.spring.AbstractProfile;
+import com.ctrip.xpipe.redis.console.service.*;
 import com.google.common.collect.Maps;
-import org.junit.*;
-import org.mockito.MockitoAnnotations;
+import com.google.common.collect.Sets;
+import org.junit.Assert;
+import org.junit.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author wenchao.meng
@@ -42,25 +43,55 @@ public class ClusterServiceImplTest extends AbstractServiceImplTest{
     @Autowired
     private ClusterDao clusterDao;
 
-
+    @Autowired
+    private DcClusterService dcClusterService;
 
     @Test
-    public void testCreateCluster(){
+    public void testCreateOneWayCluster(){
 
         String clusterName = randomString(10);
+        List<DcTbl> dcTbls = dcService.findAllDcs();
+
         ClusterModel clusterModel = new ClusterModel();
 
         clusterModel.setClusterTbl(new ClusterTbl()
                 .setActivedcId(1)
                 .setClusterName(clusterName)
+                .setClusterType(ClusterType.ONE_WAY.toString())
                 .setClusterAdminEmails("test@ctrip.com")
                 .setClusterDescription(randomString(20))
         );
 
+        clusterModel.setDcs(dcTbls);
         clusterService.createCluster(clusterModel);
         ClusterTbl clusterTbl = clusterService.find(clusterName);
         Assert.assertTrue(clusterTbl.isIsXpipeInterested());
 
+        Assert.assertFalse(dcTbls.isEmpty());
+        dcTbls.forEach(dcTbl -> Assert.assertNotNull(dcClusterService.find(dcTbl.getDcName(), clusterName)));
+    }
+
+    @Test
+    public void testCreateBiDirectionCluster() {
+        String clusterName = randomString(10);
+        List<DcTbl> dcTbls = dcService.findAllDcs();
+
+        ClusterModel clusterModel = new ClusterModel();
+
+        clusterModel.setClusterTbl(new ClusterTbl()
+                .setClusterName(clusterName)
+                .setClusterType(ClusterType.BI_DIRECTION.toString())
+                .setClusterAdminEmails("test@ctrip.com")
+                .setClusterDescription(randomString(20))
+        );
+
+        clusterModel.setDcs(dcTbls);
+        clusterService.createCluster(clusterModel);
+        ClusterTbl clusterTbl = clusterService.find(clusterName);
+        Assert.assertTrue(clusterTbl.isIsXpipeInterested());
+
+        Assert.assertFalse(dcTbls.isEmpty());
+        dcTbls.forEach(dcTbl -> Assert.assertNotNull(dcClusterService.find(dcTbl.getDcName(), clusterName)));
     }
 
     @Test
@@ -91,7 +122,7 @@ public class ClusterServiceImplTest extends AbstractServiceImplTest{
 
         ClusterTbl newCluster = clusterService.find(clusterName);
 
-        Assert.assertEquals(newStatus.toString(), newCluster.getStatus().toString());
+        Assert.assertEquals(newStatus.toString(), newCluster.getStatus());
 
         newCluster.setStatus(oldStatus.toString());
         Assert.assertEquals(clusterTbl.toString(), newCluster.toString());
@@ -139,14 +170,14 @@ public class ClusterServiceImplTest extends AbstractServiceImplTest{
 
     @Test
     public void testReBalanceSentinels() {
-        List<String> clusters = clusterService.reBalanceSentinels(1);
+        List<String> clusters = clusterService.reBalanceSentinels("jq",1, true);
         Assert.assertEquals(1, clusters.size());
         logger.info("Changed clusters: {}", clusters);
     }
 
     @Test
     public void testReBalanceSentinels2() {
-        List<String> clusters = clusterService.reBalanceSentinels(10);
+        List<String> clusters = clusterService.reBalanceSentinels("jq", 10, true);
         Assert.assertEquals(clusterService.findAllClusterNames().size(), clusters.size());
         logger.info("Changed clusters: {}", clusters);
     }
@@ -189,7 +220,7 @@ public class ClusterServiceImplTest extends AbstractServiceImplTest{
 
         int checkTimes = 10;
         while(checkTimes -- > 0) {
-            clusterService.reBalanceSentinels(10);
+            clusterService.reBalanceSentinels("jq", 10, true);
             DcClusterShardTbl dcClusterShardTbl1 = dcClusterShardService.find(dcNames[0], clusterName, shard1.getShardName());
             DcClusterShardTbl dcClusterShardTbl2 = dcClusterShardService.find(dcNames[0], clusterName, shard2.getShardName());
             Assert.assertEquals(dcClusterShardTbl1.getSetinelId(), dcClusterShardTbl2.getSetinelId());
@@ -215,6 +246,28 @@ public class ClusterServiceImplTest extends AbstractServiceImplTest{
         Assert.assertEquals(10, iCounter);
         Assert.assertEquals(10, jCounter);
         Assert.assertEquals(20, kCounter);
+    }
+
+    @Test
+    public void testFindAllClusterByKeeperContainer() {
+        List<ClusterTbl> clusterTbls = clusterService.findAllClusterByKeeperContainer(4);
+        Assert.assertTrue(clusterTbls.size() > 0);
+        Assert.assertNotNull(clusterTbls.get(0).getOrganizationInfo());
+    }
+
+    @Test
+    public void testGetClusterRelatedDcs() {
+        List<DcTbl> dcTbls = clusterService.getClusterRelatedDcs("cluster101");
+        Set<Long> dcSet = Sets.newHashSet();
+        dcTbls.forEach(dcTbl -> {dcSet.add(dcTbl.getId());});
+        Assert.assertEquals(2, dcSet.size());
+        Assert.assertTrue(dcSet.contains(1L));
+        Assert.assertTrue(dcSet.contains(2L));
+    }
+
+    @Override
+    protected String prepareDatas() throws IOException {
+        return prepareDatasFromFile("src/test/resources/cluster-service-impl-test2.sql");
     }
 
 }

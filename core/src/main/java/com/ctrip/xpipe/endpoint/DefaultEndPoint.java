@@ -1,7 +1,7 @@
 package com.ctrip.xpipe.endpoint;
 
-import com.alibaba.fastjson.annotation.JSONField;
 import com.ctrip.xpipe.api.endpoint.Endpoint;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.io.Serializable;
 import java.net.InetSocketAddress;
@@ -13,6 +13,8 @@ public class DefaultEndPoint implements Endpoint, Serializable{
 	
 	private String rawUrl;
 	private URI    uri;
+	private String ip;
+	private int port = 0;
 	
 	public DefaultEndPoint() {
 	}
@@ -23,6 +25,8 @@ public class DefaultEndPoint implements Endpoint, Serializable{
 
 	public DefaultEndPoint(String ip, int port){
 		this("redis://" + ip + ":" + port);
+		this.ip = ip;
+		this.port = port;
 	}
 	public DefaultEndPoint(String url) {
 		
@@ -35,25 +39,25 @@ public class DefaultEndPoint implements Endpoint, Serializable{
 	}
 
 	@Override
-	@JSONField(serialize=false)
+	@JsonIgnoreProperties(ignoreUnknown = true)
 	public String getScheme() {
 		return uri.getScheme();
 	}
 
 	@Override
-	@JSONField(serialize=false)
+	@JsonIgnoreProperties(ignoreUnknown = true)
 	public String getHost() {
-		return uri.getHost();
+		return ip != null ? ip : uri.getHost();
 	}
 
 	@Override
-	@JSONField(serialize=false)
+	@JsonIgnoreProperties(ignoreUnknown = true)
 	public int getPort() {
-		return uri.getPort();
+		return port != 0 ? port : uri.getPort();
 	}
 
 	@Override
-	@JSONField(serialize=false)
+	@JsonIgnoreProperties(ignoreUnknown = true)
 	public String getUser() {
 
 		String []userInfo = getUserInfo();
@@ -74,7 +78,7 @@ public class DefaultEndPoint implements Endpoint, Serializable{
 	}
 
 	@Override
-	@JSONField(serialize=false)
+	@JsonIgnoreProperties(ignoreUnknown = true)
 	public String getPassword() {
 		
 		String []userInfo = getUserInfo();

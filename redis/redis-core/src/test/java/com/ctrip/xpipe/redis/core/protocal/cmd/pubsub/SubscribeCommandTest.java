@@ -1,5 +1,7 @@
 package com.ctrip.xpipe.redis.core.protocal.cmd.pubsub;
 
+import com.ctrip.xpipe.api.command.CommandFuture;
+import com.ctrip.xpipe.api.command.CommandFutureListener;
 import com.ctrip.xpipe.api.pool.SimpleObjectPool;
 import com.ctrip.xpipe.endpoint.DefaultEndPoint;
 import com.ctrip.xpipe.netty.commands.NettyClient;
@@ -41,6 +43,23 @@ public class SubscribeCommandTest extends AbstractRedisTest {
         command.execute().sync();
     }
 
+    @Test
+    public void testSubscribeMultiChannel() throws Exception {
+        String[] channel = new String[]{"+sdown", "-sdown", "+odown", "-odown", "+reboot", "+switch-master"};
+        SubscribeCommand command = new SubscribeCommand("10.3.2.23", 6399, scheduled, channel);
+
+        command.addChannelListener(new SubscribeListener() {
+            @Override
+            public void message(String channel, String message) {
+                logger.info("[message] channel: {}, message: {}", channel, message);
+            }
+        });
+
+        command.execute().sync();
+        logger.info("{}", "sleep");
+        sleep(1000000);
+    }
+
 
     @Test
     public void testUnSubscribe() throws Exception {
@@ -61,5 +80,26 @@ public class SubscribeCommandTest extends AbstractRedisTest {
             command.unSubscribe();
         }
         Thread.sleep(5000);
+    }
+
+    @Test
+    public void testSubConnectTimeout() {
+        SubscribeCommand command = new SubscribeCommand("127.0.0.1", 6379, scheduled, "test");
+        command.addChannelListener(new SubscribeListener() {
+            @Override
+            public void message(String channel, String message) {
+
+            }
+        });
+        command.future().addListener(new CommandFutureListener<Object>() {
+            @Override
+            public void operationComplete(CommandFuture<Object> commandFuture) throws Exception {
+                if(!commandFuture.isSuccess()) {
+                    logger.error("[testSubConnectTimeout]", commandFuture.cause());
+                }
+            }
+        });
+        command.execute();
+        sleep(15000);
     }
 }

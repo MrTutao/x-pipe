@@ -1,5 +1,6 @@
 package com.ctrip.xpipe.redis.console.resources;
 
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.redis.core.entity.RouteMeta;
 import com.ctrip.xpipe.redis.core.entity.XpipeMeta;
@@ -21,7 +22,7 @@ public interface MetaCache {
 
     HostPort findMasterInSameShard(HostPort hostPort);
 
-    Set<HostPort> allKeepers();
+    Set<HostPort> getAllKeepers();
 
     Pair<String, String> findClusterShard(HostPort hostPort);
 
@@ -37,7 +38,16 @@ public interface MetaCache {
 
     RouteMeta getRouteIfPossible(HostPort hostPort);
 
-    List<HostPort> getAllRedisOfDc(String dcId);
+    boolean isCrossRegion(String activeDc, String backupDc);
+
+    // get all redis from dc whose health status is visible to activeDc
+    List<HostPort> getAllActiveRedisOfDc(String activeDc, String dcId);
 
     String getActiveDc(String clusterId, String shardId);
+
+    String getActiveDc(HostPort hostPort);
+
+    long getLastUpdateTime();
+
+    ClusterType getClusterType(String clusterId);
 }

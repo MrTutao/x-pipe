@@ -1,46 +1,24 @@
-index_module.controller('ClusterListCtl', ['$rootScope', '$scope', '$window', '$stateParams', 'AppUtil', 'toastr', 'ClusterService','DcService', 'NgTableParams',
-    function ($rootScope, $scope, $window, $stateParams, AppUtil, toastr, ClusterService, DcService, NgTableParams, $filters) {
+index_module.controller('ClusterListCtl', ['$rootScope', '$scope', '$window', '$stateParams', 'AppUtil', 'toastr', 'ClusterService','DcService', 'NgTableParams', 'ClusterType',
+    function ($rootScope, $scope, $window, $stateParams, AppUtil, toastr, ClusterService, DcService, NgTableParams, ClusterType) {
 
         $rootScope.currentNav = '1-2';
         $scope.dcs = {};
         $scope.clusterName = $stateParams.clusterName;
-        $scope.getDcName = getDcName;
+        $scope.containerId = $stateParams.keepercontainer;
+        $scope.getClusterActiveDc = getClusterActiveDc;
+        $scope.getTypeName = getTypeName;
         $scope.preDeleteCluster = preDeleteCluster;
         $scope.deleteCluster = deleteCluster;
         $scope.showUnhealthyClusterOnly = false;
         $scope.dcName = $stateParams.dcName;
         $scope.type = $stateParams.type;
-        
-        var sourceClusters = [], copedClusters = [];
+        $scope.clusterTypes = ClusterType.selectData()
+
+        $scope.sourceClusters = [];
         if($scope.clusterName) {
         	ClusterService.load_cluster($scope.clusterName)
-            .then(function(data) {
-                sourceClusters = [data];
-                copedClusters = _.clone(sourceClusters);
-                $scope.tableParams = new NgTableParams({
-                    page : 1,
-                    count : 10
-                }, {
-                    filterDelay:100,
-                    getData : function(params) {
-                        var filter_text = params.filter().clusterName;
-                        if(filter_text) {
-                            var filtered_data = [];
-                            for(var i = 0 ; i < sourceClusters.length ; i++) {
-                                var cluster = sourceClusters[i];
-                                if(cluster.clusterName.search(filter_text) !== -1) {
-                                    filtered_data.push(cluster);
-                                }
-                            }
-                            copedClusters = filtered_data;
-                        }else {
-                            copedClusters = sourceClusters;
-                        }
-
-                        params.total(copedClusters.length);
-                        return copedClusters.slice((params.page() - 1) * params.count(), params.page() * params.count());
-                    }
-                });
+            .then(function (data) {
+                loadTable([data])
             });
         }
         else if ($scope.dcName){
@@ -49,6 +27,9 @@ index_module.controller('ClusterListCtl', ['$rootScope', '$scope', '$window', '$
             }else if ($scope.type === "bindDC"){
                 showClustersBindDc($scope.dcName);
             }
+        }
+        else if ($scope.containerId) {
+            showClustersByContainer($scope.containerId)
         }
         else {
             showClusters();
@@ -61,9 +42,21 @@ index_module.controller('ClusterListCtl', ['$rootScope', '$scope', '$window', '$
         			$scope.dcs[dc.id] = dc.dcName;
         		}
         	});
-        
-        function getDcName(dcId) {
-        	return $scope.dcs[dcId] || "Unbind";
+
+
+        function getClusterActiveDc(cluster) {
+            var clusterType = ClusterType.lookup(cluster.clusterType)
+            if (clusterType && clusterType.multiActiveDcs) {
+                return "-"
+            }
+
+            return $scope.dcs[cluster.activedcId] || "Unbind";
+        }
+
+        function getTypeName(type) {
+            var clusterType = ClusterType.lookup(type)
+            if (clusterType) return clusterType.name
+            else return '未知类型'
         }
         
         function preDeleteCluster(clusterName) {
@@ -98,6 +91,9 @@ index_module.controller('ClusterListCtl', ['$rootScope', '$scope', '$window', '$
                     showClustersBindDc($scope.dcName);
                 }
             }
+            else if ($scope.containerId) {
+                showClustersByContainer($scope.containerId)
+            }
             else {
                 showAllClusters();
             }
@@ -105,136 +101,35 @@ index_module.controller('ClusterListCtl', ['$rootScope', '$scope', '$window', '$
 
         function showUnhealthyClusters() {
             ClusterService.getUnhealthyClusters()
-                .then(function (data) {
-                    sourceClusters = data;
-                    copedClusters = _.clone(sourceClusters);
-                    $scope.tableParams = new NgTableParams({
-                        page: $rootScope.historyPage,
-                        count: 10
-                    }, {
-                        filterDelay: 100,
-                        getData: function (params) {
-                            $rootScope.historyPage = params.page();
-                            var filter_text = params.filter().clusterName;
-                            if (filter_text) {
-                                var filtered_data = [];
-                                for (var i = 0; i < sourceClusters.length; i++) {
-                                    var cluster = sourceClusters[i];
-                                    if (cluster.clusterName.search(filter_text) !== -1) {
-                                        filtered_data.push(cluster);
-                                    }
-                                }
-                                copedClusters = filtered_data;
-                            } else {
-                                copedClusters = sourceClusters;
-                            }
-
-                            params.total(copedClusters.length);
-                            return copedClusters.slice((params.page() - 1) * params.count(), params.page() * params.count());
-                        }
-                    });
-                });
+                .then(loadTable);
         }
 
         function showAllClusters() {
             ClusterService.findAllClusters()
-                .then(function (data) {
-                    sourceClusters = data;
-                    copedClusters = _.clone(sourceClusters);
-                    $scope.tableParams = new NgTableParams({
-                        page: $rootScope.historyPage,
-                        count: 10
-                    }, {
-                        filterDelay: 100,
-                        getData: function (params) {
-                            $rootScope.historyPage = params.page();
-                            var filter_text = params.filter().clusterName;
-                            if (filter_text) {
-                                var filtered_data = [];
-                                for (var i = 0; i < sourceClusters.length; i++) {
-                                    var cluster = sourceClusters[i];
-                                    if (cluster.clusterName.search(filter_text) !== -1) {
-                                        filtered_data.push(cluster);
-                                    }
-                                }
-                                copedClusters = filtered_data;
-                            } else {
-                                copedClusters = sourceClusters;
-                            }
-
-                            params.total(copedClusters.length);
-                            return copedClusters.slice((params.page() - 1) * params.count(), params.page() * params.count());
-                        }
-                    });
-                });
+                .then(loadTable);
         }
 
         function showClustersBindDc(dcName) {
-            ClusterService.findClustersByDcNameBind(dcName).then(
-                function (data) {
-                    sourceClusters = data;
-                    copedClusters = _.clone(sourceClusters);
-                    $scope.tableParams = new NgTableParams({
-                        page : $rootScope.historyPage,
-                        count : 10
-                    }, {
-                        filterDelay:100,
-                        getData : function(params) {
-                            var filter_text = params.filter().clusterName;
-
-                            if(filter_text) {
-                                var filtered_data = [];
-                                for(var i = 0 ; i < sourceClusters.length ; i++) {
-                                    var cluster = sourceClusters[i];
-                                    if(cluster.clusterName.search(filter_text) !== -1) {
-                                        filtered_data.push(cluster);
-                                    }
-                                }
-                                copedClusters = filtered_data;
-                            }else {
-                                copedClusters = sourceClusters;
-                            }
-
-                            params.total(copedClusters.length);
-                            return copedClusters.slice((params.page() - 1) * params.count(), params.page() * params.count());
-                        }
-                    });
-                }
-            );
+            ClusterService.findClustersByDcNameBind(dcName).then(loadTable);
         }
 
         function showClustersByActiveDc(dcName) {
-            ClusterService.findClustersByDcName(dcName).then(
-                function (data) {
-                    sourceClusters = data;
-                    copedClusters = _.clone(sourceClusters);
-                    $scope.tableParams = new NgTableParams({
-                        page : $rootScope.historyPage,
-                        count : 10
-                    }, {
-                        filterDelay:100,
-                        getData : function(params) {
-                            var filter_text = params.filter().clusterName;
+            ClusterService.findClustersByDcName(dcName).then(loadTable);
+        }
 
-                            if(filter_text) {
-                                var filtered_data = [];
-                                for(var i = 0 ; i < sourceClusters.length ; i++) {
-                                    var cluster = sourceClusters[i];
-                                    if(cluster.clusterName.search(filter_text) !== -1) {
-                                        filtered_data.push(cluster);
-                                    }
-                                }
-                                copedClusters = filtered_data;
-                            }else {
-                                copedClusters = sourceClusters;
-                            }
+        function showClustersByContainer(containerId) {
+            ClusterService.findAllByKeeperContainer(containerId).then(loadTable);
+        }
 
-                            params.total(copedClusters.length);
-                            return copedClusters.slice((params.page() - 1) * params.count(), params.page() * params.count());
-                        }
-                    });
-                }
-            );
+        function loadTable(data) {
+            $scope.sourceClusters = data;
+            $scope.tableParams = new NgTableParams({
+                page : 1,
+                count : 10
+            }, {
+                filterDelay:100,
+                dataset: $scope.sourceClusters,
+            });
         }
 
 

@@ -5,6 +5,7 @@ import com.ctrip.xpipe.api.foundation.FoundationService;
 import com.ctrip.xpipe.api.lifecycle.Ordered;
 import com.ctrip.xpipe.api.lifecycle.TopElement;
 import com.ctrip.xpipe.api.monitor.EventMonitor;
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.observer.AbstractLifecycleObservable;
 import com.ctrip.xpipe.redis.core.console.ConsoleService;
 import com.ctrip.xpipe.redis.core.entity.*;
@@ -30,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -39,6 +41,8 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Component
 public class DefaultDcMetaCache extends AbstractLifecycleObservable implements DcMetaCache, Runnable, TopElement {
+
+	public static final String META_MODIFY_JUST_NOW_TEMPLATE = "current dc meta modifyTime {}, loadTime {}";
 
 	public static String MEMORY_META_SERVER_DAO_KEY = "memory_meta_server_dao_file";
 
@@ -60,6 +64,8 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 
 	private AtomicReference<DcMetaManager> dcMetaManager = new AtomicReference<DcMetaManager>(null);
 
+	private AtomicLong metaModifyTime = new AtomicLong(System.currentTimeMillis());
+
 	public DefaultDcMetaCache() {
 	}
 
@@ -77,7 +83,7 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 		if (consoleService != null) {
 			try {
 				logger.info("[loadMetaManager][load from console]");
-				DcMeta dcMeta = consoleService.getDcMeta(currentDc);
+				DcMeta dcMeta = loadMetaFromConsole();
 				dcMetaManager = DefaultDcMetaManager.buildFromDcMeta(dcMeta);
 			} catch (ResourceAccessException e) {
 				logger.error("[loadMetaManager][consoleService]" + e.getMessage());
@@ -120,11 +126,11 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 
 		try {
 			if (consoleService != null) {
-
-				DcMeta future = consoleService.getDcMeta(currentDc);
+				long metaLoadTime = System.currentTimeMillis();
+				DcMeta future = loadMetaFromConsole();
 				DcMeta current = dcMetaManager.get().getDcMeta();
 
-				changeDcMeta(current, future);
+				changeDcMeta(current, future, metaLoadTime);
 				checkRouteChange(current, future);
 			}
 		} catch (Throwable th) {
@@ -132,8 +138,18 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 		}
 	}
 
+	private DcMeta loadMetaFromConsole() {
+		Set<String> types = metaServerConfig.getOwnClusterType();
+		return consoleService.getDcMeta(currentDc, types);
+	}
+
 	@VisibleForTesting
-	protected void changeDcMeta(DcMeta current, DcMeta future) {
+	protected void changeDcMeta(DcMeta current, DcMeta future, final long metaLoadTime) {
+
+		if (!mayMetaUpdateFromConsole(metaLoadTime)) {
+			logger.info("[run][skip change dc meta]" + META_MODIFY_JUST_NOW_TEMPLATE, metaModifyTime.get(), metaLoadTime);
+			return;
+		}
 
 		DcMetaComparator dcMetaComparator = new DcMetaComparator(current, future);
 		dcMetaComparator.compare();
@@ -145,8 +161,21 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 			return;
 		}
 
+		DcMetaManager newDcMetaManager = DefaultDcMetaManager.buildFromDcMeta(future);
+		boolean dcMetaUpdated = false;
+		synchronized (this) {
+			if (mayMetaUpdateFromConsole(metaLoadTime)) {
+				dcMetaManager.set(newDcMetaManager);
+				dcMetaUpdated = true;
+			}
+		}
+
+		if (!dcMetaUpdated) {
+			logger.info("[run][skip change dc meta]" + META_MODIFY_JUST_NOW_TEMPLATE, metaModifyTime, metaLoadTime);
+			return;
+		}
+
 		logger.info("[run][change dc meta]");
-		dcMetaManager.set(DefaultDcMetaManager.buildFromDcMeta(future));
 		if (dcMetaComparator.totalChangedCount() > 0) {
 			logger.info("[run][change]{}", dcMetaComparator);
 			EventMonitor.DEFAULT.logEvent(META_CHANGE_TYPE, String.format("[add:%s, del:%s, mod:%s]",
@@ -200,6 +229,11 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 	@Override
 	public ClusterMeta getClusterMeta(String clusterId) {
 		return dcMetaManager.get().getClusterMeta(clusterId);
+	}
+
+	@Override
+	public ClusterType getClusterType(String clusterId) {
+		return dcMetaManager.get().getClusterType(clusterId);
 	}
 
 	@Override
@@ -277,6 +311,11 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 	}
 
 	@Override
+	public Set<String> getRelatedDcs(String clusterId, String shardId) {
+		return dcMetaManager.get().getRelatedDcs(clusterId, shardId);
+	}
+
+	@Override
 	public String getPrimaryDc(String clusterId, String shardId) {
 		return dcMetaManager.get().getActiveDc(clusterId, shardId);
 	}
@@ -293,7 +332,16 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 
 	@Override
 	public void primaryDcChanged(String clusterId, String shardId, String newPrimaryDc) {
+		synchronized (this) {
+			// serial with dc meta change
+			metaModifyTime.set(System.currentTimeMillis());
+		}
 		dcMetaManager.get().primaryDcChanged(clusterId, shardId, newPrimaryDc);
+	}
+
+	private boolean mayMetaUpdateFromConsole(final long metaLoadTime) {
+		// consider that meta from console may be old because of db sync delay or other
+		return metaLoadTime > metaModifyTime.get() + metaServerConfig.getWaitForMetaSyncDelayMilli();
 	}
 
 
@@ -325,5 +373,10 @@ public class DefaultDcMetaCache extends AbstractLifecycleObservable implements D
 		private boolean isShardChangedByDrOnly(ShardMetaComparator shardMetaComparator) {
 			return shardMetaComparator.getAdded().isEmpty() && shardMetaComparator.getRemoved().isEmpty();
 		}
+	}
+
+	@VisibleForTesting
+	protected void setMetaServerConfig(MetaServerConfig metaServerConfig) {
+		this.metaServerConfig = metaServerConfig;
 	}
 }

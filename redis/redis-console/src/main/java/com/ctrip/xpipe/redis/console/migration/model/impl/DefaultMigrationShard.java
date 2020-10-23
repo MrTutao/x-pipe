@@ -4,6 +4,7 @@ import com.ctrip.xpipe.api.command.Command;
 import com.ctrip.xpipe.api.command.CommandFuture;
 import com.ctrip.xpipe.api.command.CommandFutureListener;
 import com.ctrip.xpipe.api.observer.Observable;
+import com.ctrip.xpipe.command.DefaultCommandFuture;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.observer.AbstractObservable;
 import com.ctrip.xpipe.redis.console.migration.command.MigrationCommandBuilder;
@@ -166,8 +167,8 @@ public class DefaultMigrationShard extends AbstractObservable implements Migrati
 		logger.info("[doMigrate][doNewPrimaryDcMigrate]{}, {}, {}->{}", cluster, shard, prevPrimaryDc, newPrimaryDc);
 		try {
 			doNewPrimaryDcMigrate(cluster, shard, newPrimaryDc).get();
-		} catch (InterruptedException | ExecutionException e) {
-			shardMigrationResult.updateStepResult(ShardMigrationStep.MIGRATE_NEW_PRIMARY_DC, false, LogUtils.error(e.getMessage()));
+		} catch (Exception ignore) {
+			// has been deal by inner command future listeners
 		}
 		
 		notifyObservers(new ShardObserverEvent(shardName(), ShardMigrationStep.MIGRATE_PREVIOUS_PRIMARY_DC, ShardMigrationStep.MIGRATE_NEW_PRIMARY_DC));
@@ -238,8 +239,15 @@ public class DefaultMigrationShard extends AbstractObservable implements Migrati
 	}
 
 	private CommandFuture<PrimaryDcChangeMessage> doNewPrimaryDcMigrate(String cluster, String shard, String newPrimaryDc) {
-
-		CommandFuture<PrimaryDcChangeMessage> migrateResult = commandBuilder.buildNewPrimaryDcCommand(cluster, shard, newPrimaryDc, shardMigrationResult.getPreviousPrimaryDcMessage()).execute();
+		CommandFuture<PrimaryDcChangeMessage> migrateResult = null;
+		try {
+			migrateResult = commandBuilder.buildNewPrimaryDcCommand(cluster, shard, newPrimaryDc, shardMigrationResult.getPreviousPrimaryDcMessage()).execute();
+		} catch (Exception e) {
+			shardMigrationResult.updateStepResult(ShardMigrationStep.MIGRATE_NEW_PRIMARY_DC, false, LogUtils.error(e.getMessage()));
+			migrateResult = new DefaultCommandFuture<PrimaryDcChangeMessage>();
+			migrateResult.setFailure(e);
+			return migrateResult;
+		}
 		migrateResult.addListener(new CommandFutureListener<PrimaryDcChangeMessage>() {
 			@Override
 			public void operationComplete(CommandFuture<PrimaryDcChangeMessage> commandFuture) throws Exception {
@@ -258,7 +266,7 @@ public class DefaultMigrationShard extends AbstractObservable implements Migrati
 					logger.error("[doNewPrimaryDcMigrate][fail]", e);
 					shardMigrationResult.updateStepResult(ShardMigrationStep.MIGRATE_NEW_PRIMARY_DC, false, LogUtils.error(e.getMessage()));
 				}
-				
+
 				notifyObservers(new ShardObserverEvent(shardName(), ShardMigrationStep.MIGRATE_NEW_PRIMARY_DC));
 			}
 		});

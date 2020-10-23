@@ -6,6 +6,7 @@ import com.ctrip.xpipe.command.DefaultRetryCommandFactory;
 import com.ctrip.xpipe.command.ParallelCommandChain;
 import com.ctrip.xpipe.command.RetryCommandFactory;
 import com.ctrip.xpipe.concurrent.DefaultExecutorFactory;
+import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
 import com.ctrip.xpipe.redis.console.model.*;
 import com.ctrip.xpipe.redis.console.service.*;
 import com.ctrip.xpipe.redis.console.service.meta.*;
@@ -27,6 +28,7 @@ import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -46,13 +48,16 @@ public class AdvancedDcMetaService implements DcMetaService {
     private DcService dcService;
 
     @Autowired
+    private ZoneService zoneService;
+
+    @Autowired
     private DcClusterShardService dcClusterShardService;
 
     @Autowired
     private SentinelService sentinelService;
 
     @Autowired
-    private KeepercontainerService keepercontainerService;
+    private KeeperContainerService keeperContainerService;
 
     @Autowired
     private SentinelMetaService sentinelMetaService;
@@ -75,6 +80,9 @@ public class AdvancedDcMetaService implements DcMetaService {
     @Autowired
     private ProxyService proxyService;
 
+    @Autowired
+    private ConsoleConfig consoleConfig;
+
     @Resource(name=SCHEDULED_EXECUTOR)
     private ScheduledExecutorService scheduled;
 
@@ -86,22 +94,28 @@ public class AdvancedDcMetaService implements DcMetaService {
     public void initService() {
         int corePoolSize = Math.min(Integer.parseInt(System.getProperty("maximum.pool.size", "20")), OsUtils.getCpuCount() * 5);
         executors = DefaultExecutorFactory.createAllowCoreTimeout("AdvancedDcMetaService", corePoolSize).createExecutorService();
-        int retryTimes = 3, retryDelayMilli = 5;
-        factory = new DefaultRetryCommandFactory(retryTimes, new RetryDelay(retryDelayMilli), scheduled);
+        int retryTimeoutMilli = 3000, retryDelayMilli = 5;
+        factory = new DefaultRetryCommandFactory(new RetryDelay(retryDelayMilli), retryTimeoutMilli, scheduled);
     }
 
     @Override
     public DcMeta getDcMeta(String dcName) {
-        DcTbl dcTbl = dcService.find(dcName);
+        return getDcMeta(dcName, consoleConfig.getOwnClusterType());
+    }
 
-        DcMeta dcMeta = new DcMeta().setId(dcName).setLastModifiedTime(dcTbl.getDcLastModifiedTime());
+    @Override
+    public DcMeta getDcMeta(String dcName, Set<String> allowTypes) {
+        DcTbl dcTbl = dcService.find(dcName);
+        ZoneTbl zoneTbl = zoneService.findById(dcTbl.getZoneId());
+
+        DcMeta dcMeta = new DcMeta().setId(dcName).setLastModifiedTime(dcTbl.getDcLastModifiedTime()).setZone(zoneTbl.getZoneName());
 
         ParallelCommandChain chain = new ParallelCommandChain(executors, false);
         chain.add(retry3TimesUntilSuccess(new GetAllSentinelCommand(dcMeta)));
         chain.add(retry3TimesUntilSuccess(new GetAllKeeperContainerCommand(dcMeta)));
         chain.add(retry3TimesUntilSuccess(new GetAllRouteCommand(dcMeta)));
 
-        DcMetaBuilder builder = new DcMetaBuilder(dcMeta, dcTbl.getId(), executors, redisMetaService, dcClusterService,
+        DcMetaBuilder builder = new DcMetaBuilder(dcMeta, dcTbl.getId(), allowTypes, executors, redisMetaService, dcClusterService,
                 clusterMetaService, dcClusterShardService, dcService, factory);
         chain.add(retry3TimesUntilSuccess(builder));
 
@@ -112,7 +126,6 @@ public class AdvancedDcMetaService implements DcMetaService {
         }
 
         return dcMeta;
-
     }
 
     @VisibleForTesting
@@ -162,7 +175,7 @@ public class AdvancedDcMetaService implements DcMetaService {
         @Override
         protected void doExecute() throws Exception {
             try {
-                List<KeepercontainerTbl> keepercontainers = keepercontainerService.findAllByDcName(dcMeta.getId());
+                List<KeepercontainerTbl> keepercontainers = keeperContainerService.findAllByDcName(dcMeta.getId());
                 keepercontainers.forEach(keeperContainer -> dcMeta.addKeeperContainer(
                         keepercontainerMetaService.encodeKeepercontainerMeta(keeperContainer, dcMeta)));
                 future().setSuccess();
@@ -220,7 +233,7 @@ public class AdvancedDcMetaService implements DcMetaService {
         Map<Long, ProxyTbl> proxyTblMap = convertToMap(proxies);
         List<RouteMeta> result = Lists.newArrayListWithCapacity(routes.size());
         for(RouteTbl route : routes) {
-            if(!getDcName(route.getSrcDcId(), dcTbls).equals(dcMeta.getId())) {
+            if(!dcMeta.getId().equals(getDcName(route.getSrcDcId(), dcTbls))) {
                 continue;
             }
             RouteMeta routeMeta = new RouteMeta();
@@ -267,7 +280,7 @@ public class AdvancedDcMetaService implements DcMetaService {
                 sb.append(proxy.getUri()).append(",");
             }
         }
-        if(sb.charAt(sb.length()-1) == ',') {
+        if(sb.length() > 0 && sb.charAt(sb.length()-1) == ',') {
             sb.deleteCharAt(sb.length() - 1);
             sb.append(" ");
         }

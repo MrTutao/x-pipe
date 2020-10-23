@@ -1,6 +1,7 @@
 package com.ctrip.xpipe.redis.console.config;
 
 import com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.DcClusterDelayMarkDown;
+import com.ctrip.xpipe.redis.console.util.HickwallMetricInfo;
 import com.ctrip.xpipe.redis.core.config.CoreConfig;
 import com.ctrip.xpipe.redis.core.meta.QuorumConfig;
 import com.ctrip.xpipe.tuple.Pair;
@@ -28,8 +29,8 @@ public interface ConsoleConfig extends CoreConfig {
 	Set<String> getConsoleUserAccessWhiteList();
 	
 	int getRedisReplicationHealthCheckInterval();
-	
-	String getHickwallAddress();
+
+	HickwallMetricInfo getHickwallMetricInfo();
 
 	int getHealthyDelayMilli();
 
@@ -49,9 +50,9 @@ public interface ConsoleConfig extends CoreConfig {
 
 	int getRedisConfCheckIntervalMilli();
 
-	String getConsoleDomain();
+	int getSentinelCheckIntervalMilli();
 
-	Map<String, String> getConsoleCnameToDc();
+	String getConsoleDomain();
 
 	QuorumConfig  getDefaultSentinelQuorumConfig();
 
@@ -59,7 +60,7 @@ public interface ConsoleConfig extends CoreConfig {
 
 	String getXRedisMinimumRequestVersion();
 
-	String getXpipeRuntimeEnvironmentEnvironment();
+	String getXpipeRuntimeEnvironment();
 
 	String getDBAEmails();
 
@@ -77,7 +78,7 @@ public interface ConsoleConfig extends CoreConfig {
 
 	int getRebalanceSentinelMaxNumOnce();
 
-	int getNoAlarmMinutesForNewCluster();
+	int getNoAlarmMinutesForClusterUpdate();
 
 	Set<String> getIgnoredHealthCheckDc();
 
@@ -92,4 +93,26 @@ public interface ConsoleConfig extends CoreConfig {
 	Map<String, String> getSocketStatsAnalyzingKeys();
 
 	Pair<String, String> getClusterShardForMigrationSysCheck();
+
+	int getProxyInfoCollectInterval();
+
+	int getOutterClientCheckInterval();
+
+	Map<String, String> getConsoleDomains();
+
+	boolean isSentinelRateLimitOpen();
+
+	int getSentinelRateLimitSize();
+
+	Set<String> getVariablesCheckDataSources();
+
+	Set<String> getOwnClusterType();
+
+	String getCrossDcLeaderLeaseName();
+
+	boolean isSensitiveForRedundantRedis();
+
+	String getParallelConsoleDomain();
+
+	boolean isConsoleSiteUnstable();
 }

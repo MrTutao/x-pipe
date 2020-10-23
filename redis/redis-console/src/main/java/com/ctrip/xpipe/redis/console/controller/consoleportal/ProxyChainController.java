@@ -3,6 +3,7 @@ package com.ctrip.xpipe.redis.console.controller.consoleportal;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
 import com.ctrip.xpipe.redis.console.controller.AbstractConsoleController;
+import com.ctrip.xpipe.redis.console.controller.api.RetMessage;
 import com.ctrip.xpipe.redis.console.model.consoleportal.ProxyChainModel;
 import com.ctrip.xpipe.redis.console.model.ProxyPingStatsModel;
 import com.ctrip.xpipe.redis.console.model.consoleportal.ProxyInfoModel;
@@ -18,14 +19,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.util.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jmx.support.MetricType;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -34,13 +29,11 @@ import java.util.Map;
 @RequestMapping(AbstractConsoleController.CONSOLE_PREFIX)
 public class ProxyChainController extends AbstractConsoleController {
 
-    private static final String PROXY_PING_HICKWALL_TEMPLATE = "aliasBy(fx.xpipe.proxy.ping,address)";
+    private static final String PROXY_PING_HICKWALL_TEMPLATE = "&panelId=%d";
 
-    private static final String PROXY_CHAIN_HICKWALL_TEMPLATE = "aliasBy(fx.xpipe.%s;cluster=%s;shard=%s,address)";
+    private static final String PROXY_CHAIN_HICKWALL_TEMPLATE = "&panelId=%d&var-measure=%s&var-cluster=%s&var-shard=%s";
 
-    private static final String PROXY_TRAFFIC_HICKWALL_TEMPLATE = "aliasBy(fx.xpipe.proxy.traffic;address='%s:%d',direction)";
-
-    private static final String SUFFIX = "&panel.datasource=incluster&panel.db=FX&panelId=1&fullscreen&edit";
+    private static final String PROXY_TRAFFIC_HICKWALL_TEMPLATE = "&panelId=%d&var-address=%s:%d";
 
     private static final String ENDCODE_TYPE = "UTF-8";
 
@@ -107,8 +100,8 @@ public class ProxyChainController extends AbstractConsoleController {
     public Map<String, String> getProxyPingHickwall() {
         String template = null;
         try {
-            template = URLEncoder.encode(PROXY_PING_HICKWALL_TEMPLATE, ENDCODE_TYPE);
-        } catch (UnsupportedEncodingException e) {
+            template = String.format(PROXY_PING_HICKWALL_TEMPLATE, consoleConfig.getHickwallMetricInfo().getProxyPingPanelId());
+        } catch (Exception e) {
             logger.error("[getHickwallAddress]", e);
             return ImmutableMap.of("addr", "");
         }
@@ -122,9 +115,9 @@ public class ProxyChainController extends AbstractConsoleController {
         String template = null;
         for(String metricType : metricTypes) {
             try {
-                template = URLEncoder.encode(String.format(PROXY_CHAIN_HICKWALL_TEMPLATE, metricType, clusterId, shardId), ENDCODE_TYPE);
+                template = String.format(PROXY_CHAIN_HICKWALL_TEMPLATE, consoleConfig.getHickwallMetricInfo().getProxyCollectionPanelId(), metricType + "_value", clusterId, shardId);
                 result.put(metricType, getHickwall(template));
-            } catch (UnsupportedEncodingException e) {
+            } catch (Exception e) {
                 logger.error("[getHickwallAddress]", e);
             }
         }
@@ -132,11 +125,11 @@ public class ProxyChainController extends AbstractConsoleController {
     }
 
     private String getHickwall(String middle) {
-        String prefix = consoleConfig.getHickwallAddress();
+        String prefix = consoleConfig.getHickwallMetricInfo().getDomain();
         if (Strings.isEmpty(prefix)) {
             return "";
         }
-        return prefix + middle + SUFFIX;
+        return prefix + middle;
     }
 
 
@@ -149,11 +142,17 @@ public class ProxyChainController extends AbstractConsoleController {
     public Map<String, String> getProxyTrafficHickwall(@PathVariable String host, @PathVariable int port) {
         String template = null;
         try {
-            template = URLEncoder.encode(String.format(PROXY_TRAFFIC_HICKWALL_TEMPLATE, host, port), ENDCODE_TYPE);
-        } catch (UnsupportedEncodingException e) {
+            template = String.format(PROXY_TRAFFIC_HICKWALL_TEMPLATE, consoleConfig.getHickwallMetricInfo().getProxyTrafficPanelId(), host, port);
+        } catch (Exception e) {
             logger.error("[getHickwallAddress]", e);
             return ImmutableMap.of("addr", "");
         }
         return ImmutableMap.of("addr", getHickwall(template));
     }
+
+    @RequestMapping(value = "/proxy/chain", method = RequestMethod.DELETE)
+    public RetMessage closeProxyChain(@RequestBody List<HostPort> proxies) {
+        return proxyService.deleteProxyChain(proxies);
+    }
+
 }

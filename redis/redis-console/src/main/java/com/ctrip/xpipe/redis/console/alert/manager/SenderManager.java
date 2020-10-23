@@ -33,10 +33,10 @@ public class SenderManager {
         Sender sender = senders.get(channelId);
         try {
             boolean result = sender.send(message);
-            logger.info("[sendAlert] Channel: {}, message: {}, send out: {}", channel, message.getTitle(), result);
+            logger.debug("[sendAlert] Channel: {}, message: {}, send out: {}", channel, message.getTitle(), result);
             return result;
         } catch (Exception e) {
-            logger.error("[sendAlert] {}", e);
+            logger.error("[sendAlert]", e);
             return false;
         }
     }

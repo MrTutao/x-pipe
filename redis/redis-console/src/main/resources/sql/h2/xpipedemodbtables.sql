@@ -58,6 +58,7 @@ create table CLUSTER_TBL
 (
 	id bigint unsigned not null auto_increment primary key,
 	cluster_name varchar(128) not null unique,
+    cluster_type varchar(32) not null default 'ONE_WAY',
 	activedc_id bigint unsigned not null,
 	cluster_description varchar(1024) not null default 'nothing',
     cluster_last_modified_time varchar(40) not null default '',
@@ -126,7 +127,9 @@ create table REDIS_TBL
 	redis_master bigint unsigned default null,
 	keepercontainer_id bigint unsigned default null,
    	DataChange_LastTime timestamp default CURRENT_TIMESTAMP,
-	deleted tinyint(1) not null default 0
+	deleted tinyint(1) not null default 0,
+    deleted_at int not null default 0,
+    UNIQUE KEY `ip_port_deleted_at` (`redis_ip`,`redis_port`, `deleted_at`)
 );
 
 
@@ -190,7 +193,8 @@ create table MIGRATION_SHARD_TBL
 drop table if exists config_tbl;
 CREATE TABLE `config_tbl` (
   id bigint unsigned NOT NULL AUTO_INCREMENT primary key,
-  key varchar(128) NOT NULL DEFAULT '' unique,
+  key varchar(128) NOT NULL DEFAULT '',
+  sub_key varchar(128) NOT NULL DEFAULT '',
   value varchar(1024) DEFAULT '' ,
   until TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   latest_update_user varchar(512) DEFAULT '',
@@ -198,6 +202,7 @@ CREATE TABLE `config_tbl` (
   desc varchar(1024) NOT NULL DEFAULT '' ,
   DataChange_LastTime timestamp DEFAULT CURRENT_TIMESTAMP,
   deleted tinyint(4) NOT NULL DEFAULT 0,
+  UNIQUE KEY `key_sub_key` (`key`,`sub_key`)
 );
 INSERT INTO config_tbl (`key`, `value`, `desc`) VALUES ('sentinel.auto.process', 'true', '自动增删哨兵');
 INSERT INTO config_tbl (`key`, `value`, `desc`) VALUES ('alert.system.on', 'true', '邮件报警系统开关');

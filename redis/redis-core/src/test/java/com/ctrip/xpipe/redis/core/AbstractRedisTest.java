@@ -4,6 +4,7 @@ package com.ctrip.xpipe.redis.core;
 import com.ctrip.xpipe.AbstractTest;
 import com.ctrip.xpipe.api.pool.SimpleObjectPool;
 import com.ctrip.xpipe.api.server.Server.SERVER_ROLE;
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.endpoint.DefaultEndPoint;
 import com.ctrip.xpipe.foundation.DefaultFoundationService;
 import com.ctrip.xpipe.netty.ByteBufUtils;
@@ -532,11 +533,15 @@ public abstract class AbstractRedisTest extends AbstractTest {
     }
 
     protected RedisMeta newRandomFakeRedisMeta() {
+        return newRandomFakeRedisMeta("127.0.0.1", 6379);
+    }
+
+    protected RedisMeta newRandomFakeRedisMeta(String ip, int port) {
         DcMeta dcMeta = new DcMeta("dc");
         ClusterMeta clusterMeta = new ClusterMeta("cluster");
-        clusterMeta.setActiveDc("dc");
+        clusterMeta.setActiveDc("dc").setType(ClusterType.ONE_WAY.toString());
         ShardMeta shardMeta = new ShardMeta("shard");
-        RedisMeta redis = new RedisMeta().setIp("127.0.0.1").setPort(6379);
+        RedisMeta redis = new RedisMeta().setIp(ip).setPort(port);
         shardMeta.addRedis(redis);
         clusterMeta.addShard(shardMeta);
         dcMeta.addCluster(clusterMeta);

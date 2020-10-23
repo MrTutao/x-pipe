@@ -1,5 +1,6 @@
 package com.ctrip.xpipe.redis.console.resources;
 
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.redis.core.entity.RouteMeta;
 import com.ctrip.xpipe.redis.core.entity.XpipeMeta;
@@ -43,7 +44,7 @@ public class TestMetaCache implements MetaCache {
     }
 
     @Override
-    public Set<HostPort> allKeepers() {
+    public Set<HostPort> getAllKeepers() {
         return null;
     }
 
@@ -83,10 +84,30 @@ public class TestMetaCache implements MetaCache {
     }
 
     @Override
-    public List<HostPort> getAllRedisOfDc(String dcId) {
+    public boolean isCrossRegion(String activeDc, String backupDc) {
+        return false;
+    }
+
+    @Override
+    public List<HostPort> getAllActiveRedisOfDc(String activeDc, String dcId) {
         return null;
     }
 
     public String getActiveDc(String clusterId, String shardId){return null;}
+
+    @Override
+    public String getActiveDc(HostPort hostPort) {
+        return null;
+    }
+
+    @Override
+    public long getLastUpdateTime() {
+        return 0;
+    }
+
+    @Override
+    public ClusterType getClusterType(String clusterId) {
+        return ClusterType.ONE_WAY;
+    }
 
 }

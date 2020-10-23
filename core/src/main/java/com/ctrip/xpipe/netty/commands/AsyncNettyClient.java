@@ -53,7 +53,7 @@ public class AsyncNettyClient extends DefaultNettyClient {
             future.addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
-                    if(!future.isSuccess()) {
+                    if(future.isSuccess()) {
                         logger.info("[async][send][{}]", desc);
                         AsyncNettyClient.super.sendRequest(byteBuf);
                     } else {
@@ -77,6 +77,7 @@ public class AsyncNettyClient extends DefaultNettyClient {
                         AsyncNettyClient.super.sendRequest(byteBuf, byteBufReceiver);
                     } else {
                         logger.warn("[async][wont-send][{}] {}", desc, byteBufReceiver.getClass().getSimpleName());
+                        byteBufReceiver.clientClosed(AsyncNettyClient.this);
                     }
                 }
             });

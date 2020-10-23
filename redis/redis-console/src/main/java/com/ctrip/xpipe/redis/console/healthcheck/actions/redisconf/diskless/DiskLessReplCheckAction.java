@@ -50,7 +50,8 @@ public class DiskLessReplCheckAction extends RedisConfigCheckAction {
 
             @Override
             public void fail(Throwable throwable) {
-                logger.error("[DiskLessReplCheckAction]{}", throwable);
+                logger.error("[DiskLessReplCheckAction][{}]{}",
+                        getActionInstance().getRedisInstanceInfo().getHostPort(), throwable);
             }
         });
         getActionInstance().getRedisSession().isDiskLessSync(new Callbackable<Boolean>() {
@@ -62,9 +63,15 @@ public class DiskLessReplCheckAction extends RedisConfigCheckAction {
 
             @Override
             public void fail(Throwable throwable) {
-                logger.error("[DiskLessReplCheckAction]{}", throwable);
+                logger.error("[DiskLessReplCheckAction][{}]{}",
+                        getActionInstance().getRedisInstanceInfo().getHostPort(), throwable);
             }
         });
+    }
+
+    @Override
+    protected Logger getHealthCheckLogger() {
+        return logger;
     }
 
 

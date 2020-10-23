@@ -6,8 +6,10 @@ import com.ctrip.xpipe.api.command.CommandFuture;
 import com.ctrip.xpipe.api.command.CommandFutureListener;
 import com.ctrip.xpipe.api.retry.RetryPolicy;
 import com.ctrip.xpipe.command.AbstractCommand;
+import com.ctrip.xpipe.endpoint.DefaultEndPoint;
 import com.ctrip.xpipe.exception.ErrorMessage;
 import com.ctrip.xpipe.exception.ExceptionUtils;
+import com.ctrip.xpipe.pool.XpipeNettyClientKeyedObjectPool;
 import com.ctrip.xpipe.redis.core.entity.KeeperMeta;
 import com.ctrip.xpipe.redis.core.entity.KeeperTransMeta;
 import com.ctrip.xpipe.redis.core.keeper.container.KeeperContainerErrorCode;
@@ -27,19 +29,23 @@ import java.util.concurrent.ScheduledExecutorService;
  */
 public class AddKeeperCommand extends AbstractKeeperCommand<SlaveRole>{
 
-	public AddKeeperCommand(KeeperContainerService keeperContainerService, KeeperTransMeta keeperTransMeta,	ScheduledExecutorService scheduled,
-			int timeoutMilli) {
+	private XpipeNettyClientKeyedObjectPool clientKeyedObjectPool;
+
+	public AddKeeperCommand(KeeperContainerService keeperContainerService, KeeperTransMeta keeperTransMeta,
+							XpipeNettyClientKeyedObjectPool clientKeyedObjectPool, ScheduledExecutorService scheduled,
+							int timeoutMilli) {
 		super(keeperContainerService, keeperTransMeta, scheduled, timeoutMilli, 1000);
+		this.clientKeyedObjectPool = clientKeyedObjectPool;
 	}
 
-	public AddKeeperCommand(KeeperContainerService keeperContainerService, KeeperTransMeta keeperTransMeta, ScheduledExecutorService scheduled,
-			int timeoutMilli, int checkIntervalMilli) {
+	public AddKeeperCommand(KeeperContainerService keeperContainerService, KeeperTransMeta keeperTransMeta,
+							ScheduledExecutorService scheduled, int timeoutMilli, int checkIntervalMilli) {
 		super(keeperContainerService, keeperTransMeta, scheduled, timeoutMilli, checkIntervalMilli);
 	}
 
 	@Override
 	protected void doKeeperContainerOperation() {
-		keeperContainerService.addOrStartKeeper(keeperTransMeta);		
+		keeperContainerService.addOrStartKeeper(keeperTransMeta);
 	}
 
 	@Override
@@ -65,7 +71,7 @@ public class AddKeeperCommand extends AbstractKeeperCommand<SlaveRole>{
 
 	@Override
 	protected Command<SlaveRole> createCheckStateCommand() {
-		return new CheckStateCommand(keeperTransMeta.getKeeperMeta(), scheduled);
+		return new CheckStateCommand(keeperTransMeta.getKeeperMeta(), scheduled, clientKeyedObjectPool);
 	}
 
 	@Override
@@ -91,10 +97,18 @@ public class AddKeeperCommand extends AbstractKeeperCommand<SlaveRole>{
 
 		private KeeperMeta keeperMeta;
 		private ScheduledExecutorService scheduled;
+		private XpipeNettyClientKeyedObjectPool clientKeyedObjectPool;
 
 		public CheckStateCommand(KeeperMeta keeperMeta, ScheduledExecutorService scheduled){
 			this.keeperMeta = keeperMeta;
 			this.scheduled = scheduled;
+		}
+
+		public CheckStateCommand(KeeperMeta keeperMeta, ScheduledExecutorService scheduled,
+								 XpipeNettyClientKeyedObjectPool clientKeyedObjectPool){
+			this.keeperMeta = keeperMeta;
+			this.scheduled = scheduled;
+			this.clientKeyedObjectPool = clientKeyedObjectPool;
 		}
 
 			@Override
@@ -105,7 +119,14 @@ public class AddKeeperCommand extends AbstractKeeperCommand<SlaveRole>{
 			@Override
 			protected void doExecute() throws Exception {
 
-				CommandFuture<Role> future = new RoleCommand(keeperMeta.getIp(), keeperMeta.getPort(), true, scheduled).execute();
+				CommandFuture<Role> future;
+				if(clientKeyedObjectPool != null) {
+					future = new RoleCommand(clientKeyedObjectPool.getKeyPool(
+							new DefaultEndPoint(keeperMeta.getIp(), keeperMeta.getPort())), scheduled).execute();
+				} else {
+					// for unit test purpose
+					future = new RoleCommand(keeperMeta.getIp(), keeperMeta.getPort(), scheduled).execute();
+				}
 
 				future.addListener(new CommandFutureListener<Role>() {
 					@Override
@@ -114,7 +135,7 @@ public class AddKeeperCommand extends AbstractKeeperCommand<SlaveRole>{
 						if(commandFuture.isSuccess()){
 							SlaveRole keeperRole = (SlaveRole)commandFuture.getNow();
 							if(keeperRole.getMasterState() == MASTER_STATE.REDIS_REPL_CONNECTED){
-								logger.info("[doExecute][success]{}", keeperRole);
+								getLogger().info("[doExecute][success]{}", keeperRole);
 								future().setSuccess(keeperRole);
 							}else{
 								future().setFailure(new KeeperMasterStateNotAsExpectedException(keeperMeta, keeperRole, MASTER_STATE.REDIS_REPL_CONNECTED));

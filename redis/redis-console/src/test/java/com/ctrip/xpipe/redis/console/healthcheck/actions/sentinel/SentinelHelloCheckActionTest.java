@@ -3,18 +3,24 @@ package com.ctrip.xpipe.redis.console.healthcheck.actions.sentinel;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.redis.console.AbstractConsoleTest;
 import com.ctrip.xpipe.redis.console.config.ConsoleDbConfig;
+import com.ctrip.xpipe.redis.console.healthcheck.AbstractHealthCheckAction;
 import com.ctrip.xpipe.redis.console.healthcheck.HealthCheckAction;
-import com.ctrip.xpipe.redis.console.healthcheck.HealthCheckActionListener;
 import com.ctrip.xpipe.redis.console.healthcheck.RedisHealthCheckInstance;
 import com.ctrip.xpipe.redis.console.healthcheck.RedisInstanceInfo;
 import com.ctrip.xpipe.redis.console.healthcheck.session.RedisSession;
+import com.ctrip.xpipe.redis.console.migration.status.ClusterStatus;
+import com.ctrip.xpipe.redis.console.model.ClusterTbl;
 import com.ctrip.xpipe.redis.console.resources.MetaCache;
+import com.ctrip.xpipe.redis.console.service.ClusterService;
 import com.ctrip.xpipe.simpleserver.Server;
 import org.junit.*;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import java.util.concurrent.Callable;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -46,13 +52,18 @@ public class SentinelHelloCheckActionTest extends AbstractConsoleTest {
     private MetaCache metaCache;
 
     @Mock
-    private ConsoleDbConfig config;
+    protected ConsoleDbConfig config;
+
+    @Mock
+    protected ClusterService clusterService;
 
     private RedisHealthCheckInstance instance;
 
     private Server server;
 
     private Supplier<String> result;
+
+    private ClusterTbl clusterTbl = new ClusterTbl().setStatus(ClusterStatus.Normal.toString());
 
     @SuppressWarnings("unchecked")
     @Before
@@ -61,12 +72,19 @@ public class SentinelHelloCheckActionTest extends AbstractConsoleTest {
         server = startServerWithFlexibleResult(new Callable<String>() {
             @Override
             public String call() {
-                return result.get();
+                if(result != null) {
+                    return result.get();
+                } else {
+                    return "";
+                }
             }
         });
         instance = newRandomRedisHealthCheckInstance("dc2", server.getPort());
         when(config.isSentinelAutoProcess()).thenReturn(true);
-        action = new SentinelHelloCheckAction(scheduled, instance, executors, config);
+        when(config.shouldSentinelCheck(Mockito.anyString(), Mockito.anyBoolean())).thenReturn(true);
+        when(clusterService.find(anyString())).thenReturn(clusterTbl);
+        action = new SentinelHelloCheckAction(scheduled, instance, executors, config, clusterService);
+
     }
 
     @After
@@ -85,6 +103,15 @@ public class SentinelHelloCheckActionTest extends AbstractConsoleTest {
     }
 
     @Test
+    public void testDoScheduledTaskWithInSentinelCheckWhitelist() {
+        action = spy(action);
+        when(config.isSentinelAutoProcess()).thenReturn(true);
+        when(config.shouldSentinelCheck(Mockito.anyString(), Mockito.anyBoolean())).thenReturn(false);
+        action.doTask();
+        verify(action, never()).processSentinelHellos();
+    }
+
+    @Test
     public void testDoScheduledTaskWithRedisInPrimaryDc() {
         action = spy(action);
         when(metaCache.inBackupDc(any(HostPort.class))).thenReturn(false);
@@ -96,9 +123,24 @@ public class SentinelHelloCheckActionTest extends AbstractConsoleTest {
     public void testDoScheduleTask() {
         action = spy(action);
         SentinelHelloCheckAction.SENTINEL_COLLECT_INFO_INTERVAL = 10;
+        action.lastStartTime = System.currentTimeMillis() - 3600000;
         action.doTask();
         sleep(30);
         verify(action, times(1)).processSentinelHellos();
+    }
+
+    @Test
+    public void testDoScheduleTaskInterval() {
+        action = spy(action);
+        SentinelHelloCheckAction.SENTINEL_COLLECT_INFO_INTERVAL = 10;
+        when(action.getIntervalMilli()).thenReturn(500);
+        action.lastStartTime = System.currentTimeMillis() - 500;
+
+        ScheduledFuture f = scheduled.scheduleWithFixedDelay(action.new ScheduledHealthCheckTask(), 0, 200, TimeUnit.MILLISECONDS);
+
+        sleep(900);
+        f.cancel(false);
+        verify(action, times(2)).processSentinelHellos();
     }
 
     @Test
@@ -118,7 +160,7 @@ public class SentinelHelloCheckActionTest extends AbstractConsoleTest {
             }
         };
         AtomicInteger counter = new AtomicInteger(0);
-        SentinelHelloCheckAction.SENTINEL_COLLECT_INFO_INTERVAL = 50;
+        SentinelHelloCheckAction.SENTINEL_COLLECT_INFO_INTERVAL = 100;
         action.addListener(new SentinelHelloCollector() {
 
             @Override
@@ -133,9 +175,10 @@ public class SentinelHelloCheckActionTest extends AbstractConsoleTest {
             }
         });
         Assert.assertEquals(1, action.getListeners().size());
+        action.lastStartTime = System.currentTimeMillis() - 3600000;
         action.doTask();
         waitConditionUntilTimeOut(()->server.getConnected() > 0, 500);
-        sleep(100);
+        sleep(SentinelHelloCheckAction.SENTINEL_COLLECT_INFO_INTERVAL + 100);
         Assert.assertEquals(1, counter.get());
     }
 

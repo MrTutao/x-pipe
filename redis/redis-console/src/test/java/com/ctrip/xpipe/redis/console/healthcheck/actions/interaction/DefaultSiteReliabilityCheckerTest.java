@@ -1,6 +1,8 @@
 package com.ctrip.xpipe.redis.console.healthcheck.actions.interaction;
 
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.endpoint.HostPort;
+import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
 import com.ctrip.xpipe.redis.console.healthcheck.RedisHealthCheckInstance;
 import com.ctrip.xpipe.redis.console.healthcheck.RedisInstanceInfo;
 import com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.event.InstanceDown;
@@ -21,8 +23,7 @@ import org.mockito.stubbing.Answer;
 import java.util.List;
 import java.util.Random;
 
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -42,6 +43,9 @@ public class DefaultSiteReliabilityCheckerTest extends AbstractRedisTest {
     @Mock
     private DefaultDelayPingActionCollector defaultDelayPingActionCollector;
 
+    @Mock
+    private ConsoleConfig consoleConfig;
+
     private RedisHealthCheckInstance instance;
 
     private RedisInstanceInfo info;
@@ -52,9 +56,9 @@ public class DefaultSiteReliabilityCheckerTest extends AbstractRedisTest {
     public void beforeDefaultSiteReliabilityCheckerTest() {
         MockitoAnnotations.initMocks(this);
         instance = mock(RedisHealthCheckInstance.class);
-        info = new DefaultRedisInstanceInfo("dc", "cluster", "shard", new HostPort("localhost", 1234), "dc");
+        info = new DefaultRedisInstanceInfo("dc", "cluster", "shard", new HostPort("localhost", 1234), "dc", ClusterType.ONE_WAY);
         when(instance.getRedisInstanceInfo()).thenReturn(info);
-        when(metaCache.getAllRedisOfDc(anyString())).thenReturn(Lists.newArrayList(info.getHostPort(), new HostPort("localhost", 5678)));
+        when(metaCache.getAllActiveRedisOfDc(anyString(), anyString())).thenReturn(Lists.newArrayList(info.getHostPort(), new HostPort("localhost", 5678)));
     }
 
     @Test
@@ -64,6 +68,14 @@ public class DefaultSiteReliabilityCheckerTest extends AbstractRedisTest {
         boolean result = checker.isSiteHealthy(new InstanceDown(instance));
         Assert.assertFalse(result);
 
+    }
+
+    @Test
+    public void testConfigSetConsoleSiteUnstable() {
+        when(defaultDelayPingActionCollector.getState(any(HostPort.class))).thenReturn(HEALTH_STATE.INSTANCEUP);
+        when(consoleConfig.isConsoleSiteUnstable()).thenReturn(true).thenReturn(false);
+        Assert.assertFalse(checker.isSiteHealthy(new InstanceDown(instance)));
+        Assert.assertTrue(checker.isSiteHealthy(new InstanceDown(instance)));
     }
 
     @Test
@@ -86,7 +98,7 @@ public class DefaultSiteReliabilityCheckerTest extends AbstractRedisTest {
                 return HEALTH_STATE.HEALTHY;
             }
         });
-        when(metaCache.getAllRedisOfDc("dc")).thenReturn(dcHostPort);
+        when(metaCache.getAllActiveRedisOfDc(anyString(), eq("dc"))).thenReturn(dcHostPort);
         checker.setMetaCache(metaCache);
         boolean result;
         for(int i = 0; i < N/2 - 1; i++) {
@@ -98,7 +110,7 @@ public class DefaultSiteReliabilityCheckerTest extends AbstractRedisTest {
             Assert.assertFalse(result);
         }
         RedisHealthCheckInstance instance = mock(RedisHealthCheckInstance.class);
-        RedisInstanceInfo info = new DefaultRedisInstanceInfo("dc2", "cluster", "shard", localHostport(randomPort()), "dc2");
+        RedisInstanceInfo info = new DefaultRedisInstanceInfo("dc2", "cluster", "shard", localHostport(randomPort()), "dc2", ClusterType.ONE_WAY);
         when(instance.getRedisInstanceInfo()).thenReturn(info);
         result = checker.isSiteHealthy(new InstanceDown(instance));
         Assert.assertTrue(result);
@@ -114,7 +126,7 @@ public class DefaultSiteReliabilityCheckerTest extends AbstractRedisTest {
 
     private RedisHealthCheckInstance relatedInstance(HostPort hostPort) {
         RedisHealthCheckInstance instance = mock(RedisHealthCheckInstance.class);
-        RedisInstanceInfo info = new DefaultRedisInstanceInfo("dc", "cluster", "shard", hostPort, "dc");
+        RedisInstanceInfo info = new DefaultRedisInstanceInfo("dc", "cluster", "shard", hostPort, "dc", ClusterType.ONE_WAY);
         when(instance.getRedisInstanceInfo()).thenReturn(info);
         return instance;
     }

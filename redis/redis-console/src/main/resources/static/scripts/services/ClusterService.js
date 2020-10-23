@@ -77,6 +77,16 @@ services.service('ClusterService', ['$resource', '$q', function ($resource, $q) 
             method: 'GET',
             url: '/console/clusters/master/unhealthy/:level',
             isArray: true
+        },
+        find_all_by_keeper_container: {
+            method: 'GET',
+            url: '/console/clusters/keepercontainer/:containerId',
+            isArray: true
+        },
+        find_unhealthy_shards: {
+            method: 'GET',
+            url: '/console/shards/unhealthy',
+            isArray: true
         }
     });
     function getInvolvedOrgs() {
@@ -205,13 +215,13 @@ services.service('ClusterService', ['$resource', '$q', function ($resource, $q) 
     function createCluster(cluster, selectedDcs, shards) {
         var d = $q.defer();
         resource.create_cluster({}, {
-        	clusterTbl : cluster,
-        	slaveDcs : selectedDcs,
-        	shards : shards
-        	},
-                              function (result) {
-                                  d.resolve(result);
-                              }, function (result) {
+                clusterTbl: cluster,
+                dcs: selectedDcs,
+                shards: shards
+            },
+            function (result) {
+                d.resolve(result);
+            }, function (result) {
                 d.reject(result);
             });
         return d.promise;
@@ -290,6 +300,29 @@ services.service('ClusterService', ['$resource', '$q', function ($resource, $q) 
         return d.promise;
     }
 
+    function findAllByKeeperContainer(containerId) {
+        var d = $q.defer();
+        resource.find_all_by_keeper_container (
+            { containerId: containerId },
+            function (result) {
+                d.resolve(result);
+            }, function (result) {
+                d.reject(result);
+            });
+        return d.promise;
+    }
+
+    function getUnhealthyShards() {
+        var d = $q.defer();
+        resource.find_unhealthy_shards ({},
+            function (result) {
+                d.resolve(result);
+            }, function (result) {
+                d.reject(result);
+            });
+        return d.promise;
+    }
+
     return {
         load_cluster: loadCluster,
         findClusterDCs: findClusterDCs,
@@ -305,8 +338,10 @@ services.service('ClusterService', ['$resource', '$q', function ($resource, $q) 
         getOrganizations: getOrganizations,
         getInvolvedOrgs: getInvolvedOrgs,
         getUnhealthyClusters: getUnhealthyClusters,
+        getUnhealthyShards: getUnhealthyShards,
         findClustersByDcNameBind: findClustersByDcNameBind,
         findClustersByDcName : findClustersByDcName,
-        getMasterUnhealthyClusters : getMasterUnhealthyClusters
+        getMasterUnhealthyClusters : getMasterUnhealthyClusters,
+        findAllByKeeperContainer: findAllByKeeperContainer,
     }
 }]);

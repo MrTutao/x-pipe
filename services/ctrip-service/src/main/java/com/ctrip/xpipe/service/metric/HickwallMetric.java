@@ -1,8 +1,7 @@
 package com.ctrip.xpipe.service.metric;
 
 import com.ctrip.framework.foundation.Foundation;
-import com.ctrip.hickwall.proxy.HickwallClient;
-import com.ctrip.hickwall.proxy.common.DataPoint;
+import com.ctrip.xpipe.api.foundation.FoundationService;
 import com.ctrip.xpipe.concurrent.AbstractExceptionLogTask;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.metric.MetricData;
@@ -35,9 +34,15 @@ public class HickwallMetric implements MetricProxy {
 
 	private ArrayList<DataPoint> dataToSend = null;
 
+	private String srcConsoleIpTag = getFormattedSrcAddr(getLocalIP());
+
+	private String localIp = getLocalIP();
+
 	private static final int NUM_MESSAGES_PER_SEND = 100;
 
 	private static final int HICKWALL_SEND_INTERVAL = 2000;
+
+	private static final String currentDcId = FoundationService.DEFAULT.getDataCenter();
 	
 	public HickwallMetric() {
 		start();
@@ -108,7 +113,7 @@ public class HickwallMetric implements MetricProxy {
 		DataPoint bmp = convertToHickwallFormat(rawData);
 
 		if (!datas.offer(bmp)) {
-			logger.error("Hickwall queue overflow, will drop data");
+			logger.warn("Hickwall queue overflow, will drop data");
 		}
 	}
 	
@@ -121,9 +126,11 @@ public class HickwallMetric implements MetricProxy {
 		dp.getTag().put("cluster", md.getClusterName());
 		dp.getTag().put("shard", md.getShardName());
 		dp.getTag().put("address", md.getHostPort().toString());
-		dp.getTag().put("srcaddr", getLocalIP());
+		dp.getTag().put("srcaddr", localIp);
 		dp.getTag().put("app", "fx");
 		dp.getTag().put("dc", md.getDcName());
+		dp.getTag().put("source", currentDcId);
+		dp.getTag().put("clustertype", md.getClusterType());
 		addOtherTags(dp, md);
 		return dp;
 	}
@@ -134,7 +141,7 @@ public class HickwallMetric implements MetricProxy {
 		String metricNamePrefix = toMetricNamePrefix(md);
 		String metricName = metricNamePrefix;
 		if(hostPort != null){
-			metricName += "." + hostPort.getHost() + "." + hostPort.getPort() + "." + getLocalIP();
+			metricName += "." + hostPort.getHost() + "." + hostPort.getPort() + "." + localIp;
 		}
 		return metricName;
 	}
@@ -157,7 +164,7 @@ public class HickwallMetric implements MetricProxy {
 
 	private String getEndpoint(MetricData md) {
 		String redisToPattern = getFormattedRedisAddr(md.getHostPort());
-		String srcConsoleIpToPattern = getFormattedSrcAddr(getLocalIP());
+		String srcConsoleIpToPattern = srcConsoleIpTag;
 		return String.format("%s.%s.%s.%s", md.getClusterName(), md.getShardName(), redisToPattern, srcConsoleIpToPattern);
 	}
 

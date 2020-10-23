@@ -1,8 +1,8 @@
 index_module.controller('ClusterDcShardUpdateCtl',
                         ['$rootScope', '$scope', '$stateParams', '$window', '$location', 'toastr', 'AppUtil',
-                         'ClusterService', 'ShardService', 'RedisService', 'KeeperContainerService',
+                         'ClusterService', 'ShardService', 'RedisService', 'KeeperContainerService', 'ClusterType',
                          function ($rootScope, $scope, $stateParams, $window, $location, toastr, AppUtil,
-                                   ClusterService, ShardService, RedisService, KeeperContainerService) {
+                                   ClusterService, ShardService, RedisService, KeeperContainerService, ClusterType) {
 
                              $scope.dcs,$scope.hasMasterRedis = false, $scope.createKeeperErrorMsg = '';
                              $scope.dcShards = {};
@@ -28,6 +28,10 @@ index_module.controller('ClusterDcShardUpdateCtl',
 
                              $scope.submitUpdates = submitUpdates;
 
+                             $scope.hasRedisMaster = false;
+                             $scope.useKeeper = false;
+                             $scope.multiActiveDcs = false;
+
                              if ($scope.clusterName) {
                                  loadCluster();
                              }
@@ -44,11 +48,13 @@ index_module.controller('ClusterDcShardUpdateCtl',
 
                              function switchDc(dc) {
                                  $scope.currentDcName = dc.dcName;
-                                 findActiveKeeperContainersByCluster($scope.currentDcName, $scope.clusterName);
+                                 if ($scope.useKeeper) findActiveKeeperContainersByCluster($scope.currentDcName, $scope.clusterName);
                                  var shard = $scope.dcShards[$scope.currentDcName];
 
                                  if (!shard){
                                      loadShard($scope.clusterName, dc.dcName, $scope.shardName);
+                                 } else {
+                                     refreshShardStatus();
                                  }
 
                              }
@@ -64,7 +70,10 @@ index_module.controller('ClusterDcShardUpdateCtl',
                                          
                                          ClusterService.load_cluster($scope.clusterName)
                                  	 		.then(function(result) {
+                                 	 			var clusterType = ClusterType.lookup(result.clusterType);
                                  	 			$scope.cluster = result;
+                                 	 			$scope.useKeeper = clusterType && clusterType.useKeeper;
+                                                $scope.multiActiveDcs = clusterType && clusterType.multiActiveDcs;
                                  	 			for(var i = 0 ; i != $scope.dcs.length; ++i) {
                                  	 				if($scope.dcs[i].id === $scope.cluster.activedcId) {
                                  	 					$scope.masterDcName = $scope.dcs[i].dcName;
@@ -248,7 +257,7 @@ index_module.controller('ClusterDcShardUpdateCtl',
                              }
 
                              function refreshShardStatus() {
-                                 if(! $scope.currentDcName === $scope.masterDcName) {
+                                 if(!$scope.multiActiveDcs && !$scope.currentDcName === $scope.masterDcName) {
                                 	 $scope.hasRedisMaster = false;
                                 	 return;
                                  }

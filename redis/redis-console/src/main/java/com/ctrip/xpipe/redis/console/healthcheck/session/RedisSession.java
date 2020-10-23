@@ -7,10 +7,9 @@ import com.ctrip.xpipe.api.pool.SimpleObjectPool;
 import com.ctrip.xpipe.api.proxy.ProxyEnabled;
 import com.ctrip.xpipe.netty.commands.NettyClient;
 import com.ctrip.xpipe.pool.XpipeNettyClientKeyedObjectPool;
+import com.ctrip.xpipe.redis.core.protocal.LoggableRedisCommand;
 import com.ctrip.xpipe.redis.core.protocal.cmd.*;
-import com.ctrip.xpipe.redis.core.protocal.cmd.pubsub.PublishCommand;
-import com.ctrip.xpipe.redis.core.protocal.cmd.pubsub.SubscribeCommand;
-import com.ctrip.xpipe.redis.core.protocal.cmd.pubsub.SubscribeListener;
+import com.ctrip.xpipe.redis.core.protocal.cmd.pubsub.*;
 import com.ctrip.xpipe.redis.core.protocal.pojo.RedisInfo;
 import com.ctrip.xpipe.redis.core.protocal.pojo.Role;
 import org.slf4j.Logger;
@@ -20,6 +19,7 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 
 /**
@@ -70,7 +70,13 @@ public class RedisSession {
                 pubSubConnectionWrapper.closeAndClean();
                 subscribConns.remove(channel);
 
-                subscribeIfAbsent(channel, pubSubConnectionWrapper.getCallback());
+                subscribeIfAbsent(channel, pubSubConnectionWrapper.getCallback(), pubSubConnectionWrapper.getSubCommandSupplier());
+                Subscribe command = pubSubConnectionWrapper.command.get();
+                if (command instanceof CRDTSubscribeCommand) {
+                    crdtsubscribeIfAbsent(channel, pubSubConnectionWrapper.getCallback());
+                } else {
+                    subscribeIfAbsent(channel, pubSubConnectionWrapper.getCallback());
+                }
             }
         }
 
@@ -87,13 +93,21 @@ public class RedisSession {
     }
 
     public synchronized void subscribeIfAbsent(String channel, SubscribeCallback callback) {
+        subscribeIfAbsent(channel, callback, () -> new SubscribeCommand(clientPool, scheduled, channel));
+    }
 
+    public synchronized void crdtsubscribeIfAbsent(String channel, SubscribeCallback callback) {
+        subscribeIfAbsent(channel, callback, () -> new CRDTSubscribeCommand(clientPool, scheduled, channel));
+    }
+
+    private synchronized void subscribeIfAbsent(String channel, SubscribeCallback callback, Supplier<Subscribe> subCommandSupplier) {
         PubSubConnectionWrapper pubSubConnectionWrapper = subscribConns.get(channel);
         if (pubSubConnectionWrapper == null || pubSubConnectionWrapper.shouldCreateNewSession()) {
             if(pubSubConnectionWrapper != null) {
                 pubSubConnectionWrapper.closeAndClean();
             }
-            SubscribeCommand command = new SubscribeCommand(clientPool, scheduled, channel);
+            Subscribe command = subCommandSupplier.get();
+
             silentCommand(command);
             command.future().addListener(new CommandFutureListener<Object>() {
                 @Override
@@ -101,12 +115,11 @@ public class RedisSession {
                     subscribConns.remove(channel);
                 }
             });
-            PubSubConnectionWrapper wrapper = new PubSubConnectionWrapper(command, callback);
+            PubSubConnectionWrapper wrapper = new PubSubConnectionWrapper(command, callback, subCommandSupplier);
             subscribConns.put(channel, wrapper);
         } else {
             pubSubConnectionWrapper.replace(callback);
         }
-
     }
 
     public synchronized void publish(String channel, String message) {
@@ -118,6 +131,20 @@ public class RedisSession {
             public void operationComplete(CommandFuture<Object> commandFuture) throws Exception {
                 if(!commandFuture.isSuccess()) {
                     logger.error("Error publish to redis {}, {}", endpoint, commandFuture.cause());
+                }
+            }
+        });
+    }
+
+    public synchronized void crdtpublish(String channel, String message) {
+        CRDTPublishCommand pubCommand = new CRDTPublishCommand(clientPool, scheduled, commandTimeOut, channel, message);
+        silentCommand(pubCommand);
+
+        pubCommand.execute().addListener(new CommandFutureListener<Object>() {
+            @Override
+            public void operationComplete(CommandFuture<Object> commandFuture) throws Exception {
+                if(!commandFuture.isSuccess()) {
+                    logger.error("Error crdtpublish to redis {}, {}", endpoint, commandFuture.cause());
                 }
             }
         });
@@ -181,14 +208,12 @@ public class RedisSession {
 
     }
 
-    public CommandFuture info(final String infoSection, Callbackable<String> callback) {
-
-        InfoCommand command = new InfoCommand(clientPool, infoSection, scheduled, commandTimeOut);
+    private <V> CommandFuture<V>  addHookAndExecute(AbstractRedisCommand<V> command, Callbackable<V> callback) {
         silentCommand(command);
-        CommandFuture<String> future = command.execute();
-        future.addListener(new CommandFutureListener<String>() {
+        CommandFuture<V> future = command.execute();
+        future.addListener(new CommandFutureListener<V>() {
             @Override
-            public void operationComplete(CommandFuture<String> commandFuture) throws Exception {
+            public void operationComplete(CommandFuture<V> commandFuture) throws Exception {
                 if(!commandFuture.isSuccess()) {
                     callback.fail(commandFuture.cause());
                 } else {
@@ -199,10 +224,39 @@ public class RedisSession {
         return future;
     }
 
+    public CommandFuture<Long> expireSize(Callbackable<Long> callback) {
+        ExpireSizeCommand command = new ExpireSizeCommand(clientPool, scheduled, commandTimeOut);
+        return addHookAndExecute(command, callback);
+    }
+
+    public CommandFuture<Long> tombstoneSize(Callbackable<Long> callback) {
+        TombstoneSizeCommand command = new TombstoneSizeCommand(clientPool, scheduled, commandTimeOut);
+        return addHookAndExecute(command, callback);
+    }
+
+    public CommandFuture<String> info(final String infoSection, Callbackable<String> callback) {
+
+        InfoCommand command = new InfoCommand(clientPool, infoSection, scheduled, commandTimeOut);
+        return addHookAndExecute(command, callback);
+    }
+
+    public CommandFuture<String> crdtInfo(final String infoSection, Callbackable<String> callback) {
+
+        InfoCommand command = new CRDTInfoCommand(clientPool, infoSection, scheduled, commandTimeOut);
+        return addHookAndExecute(command, callback);
+    }
+
+    public CommandFuture<String> infoStats(Callbackable<String> callback) {
+        return info(InfoCommand.INFO_TYPE.STATS.cmd(), callback);
+    }
 
     public CommandFuture infoServer(Callbackable<String> callback) {
         String section = "server";
         return info(section, callback);
+    }
+
+    public CommandFuture<String> crdtInfoStats(Callbackable<String> callback) {
+        return crdtInfo(InfoCommand.INFO_TYPE.STATS.cmd(), callback);
     }
 
     public void infoReplication(Callbackable<String> callback) {
@@ -226,6 +280,13 @@ public class RedisSession {
         });
     }
 
+    public InfoResultExtractor syncInfo(InfoCommand.INFO_TYPE infoType)
+            throws InterruptedException, ExecutionException, TimeoutException {
+        InfoCommand infoCommand = new InfoCommand(clientPool, infoType, scheduled);
+        String info = infoCommand.execute().get(2000, TimeUnit.MILLISECONDS);
+        return new InfoResultExtractor(info);
+    }
+
 
     public CommandFuture<RedisInfo> getRedisReplInfo() {
         InfoReplicationCommand command = new InfoReplicationCommand(clientPool, scheduled, commandTimeOut);
@@ -233,7 +294,7 @@ public class RedisSession {
         return command.execute();
     }
 
-    private void silentCommand(AbstractRedisCommand command) {
+    private void silentCommand(LoggableRedisCommand command) {
         command.logRequest(false);
         command.logResponse(false);
 
@@ -263,12 +324,14 @@ public class RedisSession {
         private Long lastActiveTime = System.currentTimeMillis();
         private AtomicReference<SubscribeCallback> callback = new AtomicReference<>();
         private AtomicReference<CommandFuture> subscribeCommandFuture = new AtomicReference<>();
-        private AtomicReference<SubscribeCommand> command = new AtomicReference<>();
+        private AtomicReference<Subscribe> command = new AtomicReference<>();
+        private AtomicReference<Supplier<Subscribe>> supplier = new AtomicReference<>();
 
 
-        public PubSubConnectionWrapper(SubscribeCommand command, SubscribeCallback callback) {
+        public PubSubConnectionWrapper(Subscribe command, SubscribeCallback callback, Supplier<Subscribe> commandSupplier) {
             this.command.set(command);
             this.callback.set(callback);
+            this.supplier.set(commandSupplier);
             command.addChannelListener(new SubscribeListener() {
                 @Override
                 public void message(String channel, String message) {
@@ -303,6 +366,10 @@ public class RedisSession {
 
         public SubscribeCallback getCallback() {
             return callback.get();
+        }
+
+        public Supplier<Subscribe> getSubCommandSupplier() {
+            return supplier.get();
         }
 
         public void replace(SubscribeCallback callback) {

@@ -46,7 +46,7 @@ public abstract class Decorator {
     protected VelocityContext generateCommonContext() {
         VelocityContext context = new VelocityContext();
         context.put("time", DateTimeUtils.currentTimeAsString());
-        context.put("environment", consoleConfig.getXpipeRuntimeEnvironmentEnvironment());
+        context.put("environment", consoleConfig.getXpipeRuntimeEnvironment());
         context.put("xpipeAdminEmails", consoleConfig.getXPipeAdminEmails());
         context.put("localIpAddr", foundationService.getLocalIp());
         context.put("dateTimeUtils", dateTimeUtils);
@@ -61,12 +61,12 @@ public abstract class Decorator {
             velocityEngine.mergeTemplate(templateName, encoding, context, stringWriter);
             return stringWriter.toString();
         } catch (Exception e) {
-            logger.error("[getRenderedString] Error with velocity:\n{}", e);
+            logger.error("[getRenderedString] Error with velocity:\n", e);
         } finally {
             try {
                 stringWriter.close();
             } catch (IOException e) {
-                logger.error("[getRenderedString] Closing string writer error:\n {}", e);
+                logger.error("[getRenderedString] Closing string writer error:\n ", e);
             }
         }
         return null;

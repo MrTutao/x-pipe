@@ -4,6 +4,7 @@ import com.ctrip.xpipe.concurrent.AbstractExceptionLogTask;
 import com.ctrip.xpipe.lifecycle.AbstractLifecycle;
 import com.ctrip.xpipe.utils.VisibleForTesting;
 import com.google.common.collect.Lists;
+import org.slf4j.Logger;
 
 import java.util.List;
 import java.util.Random;
@@ -21,11 +22,13 @@ public abstract class AbstractHealthCheckAction<T extends ActionContext> extends
 
     protected List<HealthCheckActionListener<T>> listeners = Lists.newArrayList();
 
+    protected List<HealthCheckActionController> controllers = Lists.newArrayList();
+
     protected RedisHealthCheckInstance instance;
 
     protected ScheduledExecutorService scheduled;
 
-    private ScheduledFuture future;
+    protected ScheduledFuture future;
 
     protected ExecutorService executors;
 
@@ -79,6 +82,21 @@ public abstract class AbstractHealthCheckAction<T extends ActionContext> extends
         listeners.addAll(list);
     }
 
+    @Override
+    public void addController(HealthCheckActionController controller) {
+        controllers.add(controller);
+    }
+
+    @Override
+    public void addControllers(List list) {
+        controllers.addAll(list);
+    }
+
+    @Override
+    public void removeController(HealthCheckActionController controller) {
+        controllers.remove(controller);
+    }
+
     @SuppressWarnings("unchecked")
     protected void notifyListeners(ActionContext context) {
         for(HealthCheckActionListener listener : listeners) {
@@ -97,15 +115,9 @@ public abstract class AbstractHealthCheckAction<T extends ActionContext> extends
         return future;
     }
 
-    private void scheduleTask(int baseInterval) {
+    protected void scheduleTask(int baseInterval) {
         long checkInterval = getCheckTimeInterval(baseInterval);
-        future = scheduled.scheduleWithFixedDelay(new AbstractExceptionLogTask() {
-
-            @Override
-            protected void doRun() {
-                doTask();
-            }
-        }, checkInterval, baseInterval, TimeUnit.MILLISECONDS);
+        future = scheduled.scheduleWithFixedDelay(new ScheduledHealthCheckTask(), checkInterval, baseInterval, TimeUnit.MILLISECONDS);
     }
 
     protected int getCheckTimeInterval(int baseInterval) {
@@ -114,13 +126,46 @@ public abstract class AbstractHealthCheckAction<T extends ActionContext> extends
 
     protected abstract void doTask();
 
+    protected abstract Logger getHealthCheckLogger();
+
+    protected boolean shouldCheck() {
+        for (HealthCheckActionController controller : controllers) {
+            if (!controller.shouldCheck(instance)) {
+                RedisInstanceInfo redisInfo = getActionInstance().getRedisInstanceInfo();
+                logger.debug("[doRun][{}][{}][{}] skip check by {}", redisInfo.getClusterId(), redisInfo.getShardId(),
+                        redisInfo.getHostPort(), controller);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     protected int getBaseCheckInterval() {
         return instance.getHealthCheckConfig().checkIntervalMilli();
     }
 
-
     @VisibleForTesting
     public List<HealthCheckActionListener<T>> getListeners() {
         return listeners;
+    }
+
+    @VisibleForTesting
+    public List<HealthCheckActionController> getControllers() {
+        return controllers;
+    }
+
+    public class ScheduledHealthCheckTask extends AbstractExceptionLogTask {
+        @Override
+        protected Logger getLogger() {
+            return getHealthCheckLogger();
+        }
+
+        @Override
+        protected void doRun() {
+            if (shouldCheck()) {
+                doTask();
+            }
+        }
     }
 }

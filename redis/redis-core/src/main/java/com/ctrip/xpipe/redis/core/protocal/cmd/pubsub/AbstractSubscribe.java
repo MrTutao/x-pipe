@@ -2,25 +2,33 @@ package com.ctrip.xpipe.redis.core.protocal.cmd.pubsub;
 
 import com.ctrip.xpipe.api.command.CommandFuture;
 import com.ctrip.xpipe.api.command.CommandFutureListener;
+import com.ctrip.xpipe.api.payload.InOutPayload;
 import com.ctrip.xpipe.api.pool.SimpleObjectPool;
 import com.ctrip.xpipe.lifecycle.LifecycleHelper;
+import com.ctrip.xpipe.netty.ByteBufUtils;
 import com.ctrip.xpipe.netty.commands.NettyClient;
 import com.ctrip.xpipe.netty.commands.NettyClientHandler;
+import com.ctrip.xpipe.payload.ByteArrayOutputStreamPayload;
+import com.ctrip.xpipe.payload.InOutPayloadFactory;
+import com.ctrip.xpipe.pool.ReturnObjectException;
 import com.ctrip.xpipe.redis.core.exception.RedisRuntimeException;
 import com.ctrip.xpipe.redis.core.protocal.RedisClientProtocol;
 import com.ctrip.xpipe.redis.core.protocal.cmd.AbstractRedisCommand;
 import com.ctrip.xpipe.redis.core.protocal.protocal.ArrayParser;
 import com.ctrip.xpipe.redis.core.protocal.protocal.RequestStringParser;
 import com.ctrip.xpipe.tuple.Pair;
-import com.ctrip.xpipe.utils.ObjectUtils;
+import com.ctrip.xpipe.utils.ChannelUtil;
 import com.ctrip.xpipe.utils.VisibleForTesting;
 import com.google.common.collect.Lists;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author chen.zhu
@@ -37,29 +45,36 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
 
     private MESSAGE_TYPE messageType;
 
-    private String subscribeChannel;
+    private String[] subscribeChannel;
+
+    private AtomicInteger channelResponsed = new AtomicInteger(0);
 
     private List<SubscribeListener> listeners = Lists.newCopyOnWriteArrayList();
 
-    protected AbstractSubscribe(String host, int port, ScheduledExecutorService scheduled, String subscribeChannel,
-                                Subscribe.MESSAGE_TYPE messageType) {
+    private NettyClient nettyClient;
+
+    protected AbstractSubscribe(String host, int port, ScheduledExecutorService scheduled,
+                                Subscribe.MESSAGE_TYPE messageType, String... subscribeChannel) {
         super(host, port, scheduled);
         this.subscribeChannel = subscribeChannel;
         this.messageType = messageType;
+        this.inOutPayloadFactory = new InOutPayloadFactory.DirectByteBufInOutPayloadFactory();
     }
 
     public AbstractSubscribe(String host, int port, ScheduledExecutorService scheduled, int commandTimeoutMilli,
-                             MESSAGE_TYPE messageType, String subscribeChannel) {
+                             MESSAGE_TYPE messageType, String... subscribeChannel) {
         super(host, port, scheduled, commandTimeoutMilli);
         this.messageType = messageType;
         this.subscribeChannel = subscribeChannel;
+        this.inOutPayloadFactory = new InOutPayloadFactory.DirectByteBufInOutPayloadFactory();
     }
 
     public AbstractSubscribe(SimpleObjectPool<NettyClient> clientPool, ScheduledExecutorService scheduled,
-                             MESSAGE_TYPE messageType, String subscribeChannel) {
+                             MESSAGE_TYPE messageType, String... subscribeChannel) {
         super(clientPool, scheduled);
         this.messageType = messageType;
         this.subscribeChannel = subscribeChannel;
+        this.inOutPayloadFactory = new InOutPayloadFactory.DirectByteBufInOutPayloadFactory();
     }
 
     @Override
@@ -75,34 +90,14 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
     @Override
     protected Object doReceiveResponse(Channel channel, ByteBuf byteBuf) throws Exception {
 
-        switch(commandResponseState){
-            case READING_SIGN:
-                if(!hasDataRead(byteBuf)){
-                    return null;
-                }
-                int readIndex = byteBuf.readerIndex();
-                byte sign = byteBuf.getByte(readIndex);
-                if(sign == RedisClientProtocol.ASTERISK_BYTE){
-                    commandResponseState = COMMAND_RESPONSE_STATE.READING_CONTENT;
-                    redisClientProtocol = new ArrayParser(bulkStringInitSize);
-                } else {
-                    throw new IllegalArgumentException("subscribe should response with redis array format");
-                }
-            case READING_CONTENT:
-                RedisClientProtocol<?> resultParser = redisClientProtocol.read(byteBuf);
-                if(resultParser == null){
-                    return null;
-                }
-
-                Object result = resultParser.getPayload();
-                if(result == null){
-                    return new String[0];
-                }
-                return processResponse(channel, result);
-            default:
-                throw new IllegalStateException("unkonwn state:" + commandResponseState);
+        if(!hasDataRead(byteBuf)){
+            return null;
         }
-
+        Object response = super.doReceiveResponse(channel, byteBuf);
+        if (response == null) {
+            return null;
+        }
+        return processResponse(channel, response);
     }
 
     private Object processResponse(Channel channel, Object response) {
@@ -129,13 +124,24 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
     }
 
     protected void afterCommandExecute(NettyClient nettyClient) {
+        this.nettyClient = nettyClient;
         future().addListener(new CommandFutureListener<Object>() {
             @Override
             public void operationComplete(CommandFuture<Object> commandFuture) throws Exception {
-                if(nettyClient != null) {
-                    getClientPool().returnObject(nettyClient);
+                if(nettyClient != null){
+                    nettyClient.channel().close().addListener(new ChannelFutureListener() {
+                        @Override
+                        public void operationComplete(ChannelFuture future) throws Exception {
+                            try {
+                                getClientPool().returnObject(nettyClient);
+                            } catch (ReturnObjectException e) {
+                                getLogger().error("[doExecute]", e);
+                            }
+                        }
+                    });
                 }
-                if(isPoolCreated()) {
+
+                if(isPoolCreated()){
                     LifecycleHelper.stopIfPossible(getClientPool());
                     LifecycleHelper.disposeIfPossible(getClientPool());
                 }
@@ -147,8 +153,9 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
     protected void handleResponse(Channel channel, Object response) {
 
         validateResponse(channel, response);
-
-        setSubscribeState(SUBSCRIBE_STATE.SUBSCRIBING);
+        if (channelResponsed.incrementAndGet() == subscribeChannel.length) {
+            setSubscribeState(SUBSCRIBE_STATE.SUBSCRIBING);
+        }
     }
 
     private void validateResponse(Channel channel, Object response) {
@@ -159,22 +166,27 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
 
         if(objects.length < 3 || !messageType.isFromSubType(payloadToString(objects[0]))) {
             String message = String.format("Subscribe channel response incorrect: %s", Arrays.toString(objects));
-            logger.error("[handleResponse]{}", message);
+            getLogger().error("[handleResponse]{}", message);
             throw new RedisRuntimeException(message);
         }
 
-        String monitorChannel = payloadToString(objects[1]);
-        if(!ObjectUtils.equals(monitorChannel, getSubscribeChannel())) {
-            String message = String.format("Subscribe channel: %s not as expected: %s", monitorChannel, getSubscribeChannel());
-            logger.error("[handleResponse]{}", message);
-            throw new RedisRuntimeException(message);
+        if(logRequest()) {
+            getLogger().info("[handleResponse][subscribe success]channel[{}]{}", channel, channel == null ? "unknown" : channel.attr(NettyClientHandler.KEY_CLIENT).get().toString());
         }
-        logger.info("[handleResponse][subscribe success], {}", channel.attr(NettyClientHandler.KEY_CLIENT).get().toString());
-
     }
 
 
-    protected abstract void doUnsubscribe();
+    protected void doUnsubscribe() {
+        getLogger().debug("[un-subscribe]close channel: {}",
+                nettyClient == null ? "null - already closed" : ChannelUtil.getDesc(nettyClient.channel()));
+
+        if(nettyClient != null && nettyClient.channel() != null) {
+            nettyClient.channel().close();
+        }
+        if(!future().isDone()) {
+            future().setSuccess();
+        }
+    }
 
     protected void handleMessage(Object response) {
         if(!(response instanceof Object[])) {
@@ -189,14 +201,16 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
         }
     }
 
-    protected abstract SubscribeMessageHandler getSubscribeMessageHandler();
+    protected SubscribeMessageHandler getSubscribeMessageHandler() {
+        return new DefaultSubscribeMessageHandler();
+    }
 
     private void notifyListeners(Pair<String, String> channelAndMessage) {
         for(SubscribeListener listener : listeners) {
             try {
                 listener.message(channelAndMessage.getKey(), channelAndMessage.getValue());
             } catch (Exception e) {
-                logger.error("[notifyListeners] Listener: {}, exception: ", listener.getClass().getSimpleName(), e);
+                getLogger().error("[notifyListeners] Listener: {}, exception: ", listener.getClass().getSimpleName(), e);
             }
         }
     }
@@ -208,15 +222,13 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
 
     @Override
     public ByteBuf getRequest() {
-        return new RequestStringParser(getName(), subscribeChannel).format();
+        String[] request = new String[subscribeChannel.length + 1];
+        request[0] = getName();
+        System.arraycopy(subscribeChannel, 0, request, 1, subscribeChannel.length);
+        return new RequestStringParser(request).format();
     }
 
-    @Override
-    public int getCommandTimeoutMilli() {
-        return 0;
-    }
-
-    protected String getSubscribeChannel() {
+    protected String[] getSubscribeChannel() {
         return subscribeChannel;
     }
 
@@ -224,12 +236,24 @@ public abstract class AbstractSubscribe extends AbstractRedisCommand<Object> imp
         return subscribeState;
     }
 
-    private synchronized void setSubscribeState(SUBSCRIBE_STATE state) {
+    @VisibleForTesting
+    protected synchronized void setSubscribeState(SUBSCRIBE_STATE state) {
+        // WAITING_RESPONSE -> SUBSCRIBING means that subscriber has received subscribe header
+        if (SUBSCRIBE_STATE.WAITING_RESPONSE == this.subscribeState && SUBSCRIBE_STATE.SUBSCRIBING == state) {
+            cancelTimeout();
+        }
         this.subscribeState = state;
     }
 
+    @Override
     public void unSubscribe() {
         setSubscribeState(SUBSCRIBE_STATE.UNSUBSCRIBE);
         doUnsubscribe();
+    }
+
+    @Override
+    protected void handleTimeout(NettyClient nettyClient) {
+        super.handleTimeout(nettyClient);
+        unSubscribe();
     }
 }

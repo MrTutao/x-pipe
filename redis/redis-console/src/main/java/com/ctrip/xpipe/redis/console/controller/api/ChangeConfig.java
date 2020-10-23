@@ -2,13 +2,19 @@ package com.ctrip.xpipe.redis.console.controller.api;
 
 import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
 import com.ctrip.xpipe.redis.console.controller.AbstractConsoleController;
+import com.ctrip.xpipe.redis.console.model.ClusterConfigModel;
+import com.ctrip.xpipe.redis.console.model.ClusterTbl;
 import com.ctrip.xpipe.redis.console.model.ConfigModel;
+import com.ctrip.xpipe.redis.console.service.ClusterService;
 import com.ctrip.xpipe.redis.console.service.ConfigService;
+import com.ctrip.xpipe.utils.StringUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.unidal.dal.jdbc.DalException;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * @author wenchao.meng
@@ -24,6 +30,9 @@ public class ChangeConfig extends AbstractConsoleController{
 
     @Autowired
     private ConsoleConfig consoleConfig;
+
+    @Autowired
+    private ClusterService clusterService;
 
     @RequestMapping(value = "/config/sentinel_auto_process/start", method = RequestMethod.POST)
     public void startSentinelAutoProcess(HttpServletRequest request,
@@ -70,6 +79,47 @@ public class ChangeConfig extends AbstractConsoleController{
         }
         logger.info("[setIgnoreMigrationSystemAvailOrNot][{}] ignore: {}", sourceIp, ignore);
         configService.doIgnoreMigrationSystemAvailability(ignore);
+    }
+
+    @RequestMapping(value = "/config/sentinel/check/" + CLUSTER_NAME_PATH_VARIABLE + "/start", method = RequestMethod.POST)
+    public RetMessage startSentinelCheck(HttpServletRequest request, @PathVariable String clusterName) throws DalException {
+        checkClusterName(clusterName);
+        ConfigModel config = configModel(request, null);
+        config.setSubKey(clusterName);
+        configService.startSentinelCheck(config);
+        return RetMessage.createSuccessMessage("success");
+    }
+
+    @RequestMapping(value = {"/config/sentinel/check/" + CLUSTER_NAME_PATH_VARIABLE + "/stop/{maintainMinutes}",
+            "/config/sentinel/check/" + CLUSTER_NAME_PATH_VARIABLE + "/stop"}, method = RequestMethod.POST)
+    public RetMessage stopSentinelCheck(HttpServletRequest request, @PathVariable String clusterName,
+                                        @PathVariable(required = false) Integer maintainMinutes) throws DalException {
+        if (null == maintainMinutes || maintainMinutes <= 0) maintainMinutes = consoleConfig.getNoAlarmMinutesForClusterUpdate();
+        maintainMinutes = Math.min(maintainMinutes, consoleConfig.getConfigDefaultRestoreHours() * 60);
+
+        checkClusterName(clusterName);
+        ConfigModel config = configModel(request, null);
+        config.setSubKey(clusterName);
+        configService.stopSentinelCheck(config, maintainMinutes);
+        return RetMessage.createSuccessMessage("success");
+    }
+
+    @RequestMapping(value = "/config/sentinel/check/" + CLUSTER_NAME_PATH_VARIABLE, method = RequestMethod.GET)
+    public ClusterConfigModel getSentinelCheckConfig(@PathVariable String clusterName) {
+        if (StringUtil.isEmpty(clusterName)) throw new IllegalArgumentException("cluster can not be empty");
+        return new ClusterConfigModel(clusterName, configService.shouldSentinelCheck(clusterName));
+    }
+
+    @RequestMapping(value = "/config/sentinel/check/exclude/all", method = RequestMethod.GET)
+    public List<String> getAllSentinelCheckExcludeConfig() {
+        List<ConfigModel> configModels = configService.getActiveSentinelCheckExcludeConfig();
+        return configModels.stream().map(ConfigModel::getSubKey).collect(Collectors.toList());
+    }
+
+    private void checkClusterName(String clusterName) {
+        if (StringUtil.isEmpty(clusterName)) throw new IllegalArgumentException("cluster can not be empty");
+        ClusterTbl clusterTbl = clusterService.find(clusterName);
+        if (null == clusterTbl) throw new IllegalArgumentException("cluster not exist");
     }
 
     private ConfigModel configModel(HttpServletRequest request, ConfigModel configModel) {

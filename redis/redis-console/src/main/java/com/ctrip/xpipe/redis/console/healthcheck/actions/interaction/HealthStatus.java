@@ -6,6 +6,7 @@ import com.ctrip.xpipe.concurrent.AbstractExceptionLogTask;
 import com.ctrip.xpipe.observer.AbstractObservable;
 import com.ctrip.xpipe.redis.console.healthcheck.RedisHealthCheckInstance;
 import com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.event.InstanceDown;
+import com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.event.InstanceHalfSick;
 import com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.event.InstanceSick;
 import com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.event.InstanceUp;
 import com.ctrip.xpipe.utils.DateTimeUtils;
@@ -79,22 +80,36 @@ public class HealthStatus extends AbstractObservable implements Startable, Stopp
             future.cancel(true);
         }
 
-        future = scheduled.scheduleWithFixedDelay(new AbstractExceptionLogTask() {
-            @Override
-            protected void doRun() throws Exception {
+        future = scheduled.scheduleWithFixedDelay(new CheckDownTask(),
+                0, instance.getHealthCheckConfig().checkIntervalMilli(), TimeUnit.MILLISECONDS);
+    }
 
-                if(lastHealthDelayTime.get() < 0 && lastPongTime.get() < 0) {
-                    logger.debug("[last unhealthy time < 0, break]{}, {}", instance, lastHealthDelayTime);
-                    return;
-                }
-                healthStatusUpdate();
+    private class CheckDownTask extends AbstractExceptionLogTask {
+        @Override
+        protected Logger getLogger() {
+            return HealthStatus.logger;
+        }
+
+        @Override
+        protected void doRun() throws Exception {
+
+            if(lastHealthDelayTime.get() < 0 && lastPongTime.get() < 0) {
+                logger.debug("[last unhealthy time < 0, break]{}, {}", instance, lastHealthDelayTime);
+                return;
             }
-        }, 0, instance.getHealthCheckConfig().checkIntervalMilli(), TimeUnit.MILLISECONDS);
+            healthStatusUpdate();
+        }
     }
 
     void pong(){
         lastPongTime.set(System.currentTimeMillis());
         setPingUp();
+    }
+
+    void pongInit() {
+        if (lastPongTime.get() == UNSET_TIME) {
+            lastPongTime.set(System.currentTimeMillis());
+        }
     }
 
     void delay(long delayMilli){
@@ -153,13 +168,20 @@ public class HealthStatus extends AbstractObservable implements Startable, Stopp
 
     private void setDelayHalfDown() {
         HEALTH_STATE preState = state.get();
+        if (preState.equals(preState.afterDelayHalfFail())) {
+            return;
+        }
         if(state.compareAndSet(preState, preState.afterDelayHalfFail())) {
             logStateChange(preState, state.get());
+            notifyObservers(new InstanceHalfSick(instance));
         }
     }
 
     private void setDelayDown() {
         HEALTH_STATE preState = state.get();
+        if (preState.equals(preState.afterDelayFail())) {
+            return;
+        }
         if(state.compareAndSet(preState, preState.afterDelayFail())) {
             logStateChange(preState, state.get());
         }
@@ -171,6 +193,9 @@ public class HealthStatus extends AbstractObservable implements Startable, Stopp
 
     private void setPingHalfDown() {
         HEALTH_STATE preState = state.get();
+        if(preState.equals(preState.afterPingHalfFail())) {
+            return;
+        }
         if(state.compareAndSet(preState, preState.afterPingHalfFail())) {
             logStateChange(preState, state.get());
         }
@@ -178,6 +203,9 @@ public class HealthStatus extends AbstractObservable implements Startable, Stopp
 
     private void setPingDown() {
         HEALTH_STATE preState = state.get();
+        if(preState.equals(preState.afterPingFail())) {
+            return;
+        }
         if(state.compareAndSet(preState, preState.afterPingFail())) {
             logStateChange(preState, state.get());
         }
@@ -199,7 +227,7 @@ public class HealthStatus extends AbstractObservable implements Startable, Stopp
         if(pre.equals(cur)) {
             return;
         }
-        logger.info("[state-change][{}] {} -> {}", this, pre, cur);
+        logger.debug("[state-change][{}] {} -> {}", this, pre, cur);
     }
 
     @Override

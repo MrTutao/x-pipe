@@ -1,21 +1,26 @@
 package com.ctrip.xpipe.redis.console.cluster;
 
-import com.ctrip.xpipe.foundation.DefaultFoundationService;
+import com.ctrip.xpipe.api.foundation.FoundationService;
 import com.ctrip.xpipe.redis.console.AbstractConsoleTest;
 import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
+import com.ctrip.xpipe.redis.console.election.CrossDcLeaderElectionAction;
+import com.ctrip.xpipe.redis.console.exception.DalUpdateException;
+import com.ctrip.xpipe.redis.console.model.ConfigModel;
+import com.ctrip.xpipe.redis.console.service.ConfigService;
+import com.ctrip.xpipe.utils.DateTimeUtils;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
-import org.xbill.DNS.TextParseException;
 
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.concurrent.TimeoutException;
+import java.util.Date;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -26,98 +31,203 @@ import static org.mockito.Mockito.when;
 @RunWith(MockitoJUnitRunner.class)
 public class ConsoleCrossDcServerTest extends AbstractConsoleTest{
 
+
     @Mock
-    private ConsoleConfig consoleConfig;
+    private ConfigService configService;
 
     private ConsoleCrossDcServer crossDcClusterServer;
 
-    private int checkIntervalMilli = 10;
+    private AtomicBoolean siteLeader = new AtomicBoolean(true);
 
-    private List<String> cnames = new LinkedList<>();
+    private ConsoleLeaderElector consoleLeaderElector;
+
+    private volatile String leaderDc = "init-dc";
+
+    private String currentDc = FoundationService.DEFAULT.getDataCenter();
+
+    private volatile int electInterval = 10;
 
     @Before
-    public void beforeConsoleCrossDcServerTest(){
+    public void beforeConsoleCrossDcServerTest() throws Exception {
+        crossDcClusterServer = new ConsoleCrossDcServer();
 
+        consoleLeaderElector = mock(ConsoleLeaderElector.class);
+        crossDcClusterServer.setConsoleLeaderElector(consoleLeaderElector);
+        crossDcClusterServer.setCrossDcLeaderElectionAction(new TestCrossDcLeaderElectionAction());
+        crossDcClusterServer.setConfigService(configService);
 
-        crossDcClusterServer = new ConsoleCrossDcServer(){
+        when(configService.getCrossDcLeader()).thenAnswer(inv -> leaderDc);
+        when(consoleLeaderElector.amILeader()).thenAnswer(inv -> siteLeader.get());
 
-            @Override
-            protected List<String> lookUpCname(String domain) throws TextParseException {
-
-                return cnames;
-            }
-        };
-
-        crossDcClusterServer.setConsoleConfig(consoleConfig);
-        crossDcClusterServer.setCheckIntervalMilli(checkIntervalMilli);
-
-        cnames.add("cname1");
-        HashMap<String, String> cnameToDc = new HashMap<>();
-        cnameToDc.put("cname1", "jq");
-        cnameToDc.put("cname2", "oy");
-        DefaultFoundationService.setDataCenter("jq");
-
-        when(consoleConfig.getConsoleDomain()).thenReturn("xpipe");
-        when(consoleConfig.getConsoleCnameToDc()).thenReturn(cnameToDc);
-
+        // db can not write with network island
+        Mockito.doAnswer(inv -> { throw new DalUpdateException("db write is not available"); })
+                .when(configService).updateCrossDcLeader(Mockito.any(), Mockito.any());
     }
 
+    @Test
+    public void testNonSiteLeader() throws Exception {
+        siteLeader.set(false);
+        leaderDc = currentDc;
+
+        crossDcClusterServer.start();
+        Assert.assertFalse(consoleLeaderElector.amILeader());
+
+        sleep(electInterval);
+        Assert.assertFalse(crossDcClusterServer.amILeader());
+    }
 
     @Test
-    public void testNoCnameLeader() throws TimeoutException {
+    public void testValidLeader() throws Exception {
+        siteLeader.set(true);
+        leaderDc = currentDc;
+        crossDcClusterServer.start();
 
-        cnames.clear();
-        crossDcClusterServer.isleader();
-
+        Assert.assertTrue(consoleLeaderElector.amILeader());
         waitConditionUntilTimeOut(() -> crossDcClusterServer.amILeader());
+    }
+
+    @Test
+    public void testNotLeader() throws Exception {
+        siteLeader.set(true);
+
+        crossDcClusterServer.start();
+        Assert.assertTrue(consoleLeaderElector.amILeader());
+
+        sleep(electInterval);
+        waitConditionUntilTimeOut(() -> !crossDcClusterServer.amILeader());
+    }
+
+
+    @Test
+    public void testLeaderBecomeCrossDcLeader() {
+        siteLeader.set(true);
+        leaderDc = currentDc;
+
+        crossDcClusterServer.isleader();
+        sleep(electInterval);
+        Assert.assertTrue(crossDcClusterServer.amILeader());
 
     }
 
     @Test
-    public void testLeaderBecomeCrossDcLeader() throws TimeoutException {
+    public void testNotLeaderTwo() throws Exception {
+        siteLeader.set(true);
+        leaderDc = currentDc;
 
         crossDcClusterServer.isleader();
-
-        waitConditionUntilTimeOut(() -> crossDcClusterServer.amILeader());
-
-    }
-
-    @Test
-    public void testNotLeader() throws TimeoutException {
-
-        crossDcClusterServer.isleader();
-
         waitConditionUntilTimeOut(() -> crossDcClusterServer.amILeader());
 
         crossDcClusterServer.notLeader();
-
-        sleep(300);
+        waitConditionUntilTimeOut(() -> !crossDcClusterServer.amILeader(), 300);
         Assert.assertFalse(crossDcClusterServer.amILeader());
 
     }
 
 
     @Test
-    public void testLeaderBecomeCrossDcLeaderThenFallback() throws TimeoutException {
+    public void testLeaderBecomeCrossDcLeaderThenFallback() throws Exception {
+        siteLeader.set(true);
+        leaderDc = currentDc;
 
         crossDcClusterServer.isleader();
-
         waitConditionUntilTimeOut(() -> crossDcClusterServer.amILeader());
 
-        DefaultFoundationService.setDataCenter("oy");
-
-        waitConditionUntilTimeOut(() -> !crossDcClusterServer.amILeader());
+        leaderDc = "other-dc";
+        sleep(electInterval * 2);
+        Assert.assertFalse(crossDcClusterServer.amILeader());
     }
-
 
     @Test
-    public void test() throws TextParseException {
+    public void testForceSetLeader() {
+        siteLeader.set(true);
+
+        crossDcClusterServer.isleader();
+        sleep(2 * electInterval);
+        Assert.assertFalse(crossDcClusterServer.amILeader());
+
+        ConfigModel config = new ConfigModel();
+        config.setVal(currentDc);
 
         try {
-            List<String> cnames = crossDcClusterServer.lookUpCname("xpipe1.ctripcorp.com");
-            logger.info("[test]{}", cnames);
-        } catch (TextParseException e) {
-            logger.error("[test]", e);
+            crossDcClusterServer.forceSetCrossLeader(config, DateTimeUtils.getSecondsLaterThan(new Date(), 100));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        sleep(2 * electInterval);
+        Assert.assertTrue(crossDcClusterServer.amILeader());
+    }
+
+    @Test
+    public void testForceSetNotLeader() throws Exception {
+        siteLeader.set(true);
+        leaderDc = currentDc;
+
+        crossDcClusterServer.isleader();
+        waitConditionUntilTimeOut(() -> crossDcClusterServer.amILeader());
+
+        ConfigModel config = new ConfigModel();
+        config.setVal("other-dc");
+
+        try {
+            crossDcClusterServer.forceSetCrossLeader(config, DateTimeUtils.getSecondsLaterThan(new Date(), 100));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        sleep(2 * electInterval);
+        Assert.assertFalse(crossDcClusterServer.amILeader());
+    }
+
+    @Test
+    public void testRefreshLeader() throws Exception {
+        int originElectInterval = electInterval;
+        siteLeader.set(true);
+        leaderDc = currentDc;
+
+        crossDcClusterServer.isleader();
+        waitConditionUntilTimeOut(() -> crossDcClusterServer.amILeader());
+
+        electInterval = 10000;
+        sleep(originElectInterval);
+
+        leaderDc = "other-dc";
+        sleep(2 * originElectInterval);
+        Assert.assertTrue(crossDcClusterServer.amILeader());
+
+        crossDcClusterServer.refreshCrossLeaderStatus();
+        Assert.assertFalse(crossDcClusterServer.amILeader());
+    }
+
+
+    @After
+    public void afterConsoleCrossDcServerTest() throws Exception {
+        crossDcClusterServer.stop();
+    }
+
+    private class TestCrossDcLeaderElectionAction extends CrossDcLeaderElectionAction {
+
+        public TestCrossDcLeaderElectionAction() {
+            super(null, null, Mockito.mock(ConsoleConfig.class));
+        }
+
+        protected boolean shouldElect() {
+            return true;
+        }
+
+        protected void beforeElect() {
+        }
+
+        protected void doElect() {
+        }
+
+        protected void afterElect() {
+            notifyObservers(leaderDc);
+        }
+
+        protected long getElectIntervalMillSecond() {
+            return electInterval;
         }
     }
+
 }

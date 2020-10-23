@@ -13,6 +13,7 @@ import com.ctrip.xpipe.redis.console.healthcheck.nonredis.cluster.ClusterHealthM
 import com.ctrip.xpipe.redis.console.healthcheck.nonredis.cluster.ClusterHealthMonitorManager;
 import com.ctrip.xpipe.redis.console.healthcheck.nonredis.cluster.ClusterHealthState;
 import com.ctrip.xpipe.redis.console.healthcheck.nonredis.cluster.LeveledEmbededSet;
+import com.ctrip.xpipe.redis.console.proxy.impl.DefaultProxyMonitorCollectorManager;
 import com.ctrip.xpipe.redis.console.service.ShardService;
 import com.ctrip.xpipe.spring.AbstractProfile;
 import com.ctrip.xpipe.utils.MapUtils;
@@ -144,9 +145,14 @@ public class DefaultClusterHealthMonitorManager implements ClusterHealthMonitorM
     private void onInstanceStateChange(Object args) {
 
         executors.execute(new AbstractExceptionLogTask() {
+
             @Override
             protected void doRun() {
                 AbstractInstanceEvent event = (AbstractInstanceEvent) args;
+                if (event.getInstance().getRedisInstanceInfo().getClusterType().supportMultiActiveDC()) {
+                    // only care about the master status for single active dc cluster
+                    return;
+                }
                 if(!event.getInstance().getRedisInstanceInfo().isMaster()) {
                     return;
                 }

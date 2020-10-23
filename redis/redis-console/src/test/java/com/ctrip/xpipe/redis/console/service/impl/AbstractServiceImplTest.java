@@ -1,5 +1,6 @@
 package com.ctrip.xpipe.redis.console.service.impl;
 
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.redis.console.AbstractConsoleIntegrationTest;
 import com.ctrip.xpipe.redis.console.model.*;
 import com.ctrip.xpipe.redis.console.service.*;
@@ -23,10 +24,7 @@ public abstract class AbstractServiceImplTest extends AbstractConsoleIntegration
     private ClusterService clusterService;
 
     @Autowired
-    private DcClusterService dcClusterService;
-
-    @Autowired
-    private KeepercontainerService keepercontainerService;
+    private KeeperContainerService keeperContainerService;
 
     @Autowired
     private ShardService shardService;
@@ -51,6 +49,7 @@ public abstract class AbstractServiceImplTest extends AbstractConsoleIntegration
 
         clusterModel.setClusterTbl(new ClusterTbl().
                 setClusterName(clusterName)
+                .setClusterType(ClusterType.ONE_WAY.toString())
                 .setActivedcId(dcIds[0])
                 .setClusterDescription("desc")
                 .setClusterAdminEmails("test@ctrip.com"));
@@ -58,8 +57,7 @@ public abstract class AbstractServiceImplTest extends AbstractConsoleIntegration
 
         clusterModel.setShards(createShards(shardNames));
 
-        DcTbl slaveDc = new DcTbl().setDcName(dcNames[1]);
-        clusterModel.setSlaveDcs(Lists.newArrayList(slaveDc));
+        clusterModel.setDcs(Lists.newArrayList(new DcTbl().setDcName(dcNames[0]), new DcTbl().setDcName(dcNames[1])));
 
         clusterService.createCluster(clusterModel);
 
@@ -73,7 +71,7 @@ public abstract class AbstractServiceImplTest extends AbstractConsoleIntegration
 
         for(String dcName : dcNames){
 
-            List<KeepercontainerTbl> keepercontainerTbls = keepercontainerService.findAllActiveByDcName(dcName);
+            List<KeepercontainerTbl> keepercontainerTbls = keeperContainerService.findAllActiveByDcName(dcName);
 
             Assert.assertTrue(keepercontainerTbls.size() >= 2);
             long keepercontainerId1 = keepercontainerTbls.get(0).getKeepercontainerId();

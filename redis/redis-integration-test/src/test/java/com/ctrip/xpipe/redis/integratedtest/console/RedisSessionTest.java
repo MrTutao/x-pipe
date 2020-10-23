@@ -70,7 +70,7 @@ public class RedisSessionTest extends AbstractIntegratedTest {
         PublishCommand publishCommand = new PublishCommand(getXpipeNettyClientKeyedObjectPool().getKeyPool(endpoint),
                 scheduled, SUBSCRIBE_CHANNEL, message);
         publishCommand.execute();
-        waitConditionUntilTimeOut(()->result.get() != null, 1000);
+        waitConditionUntilTimeOut(()->result.get() != null, 5000);
         logger.info("[message] result: {}", result.get());
         Assert.assertEquals(message, result.get());
     }
@@ -105,7 +105,7 @@ public class RedisSessionTest extends AbstractIntegratedTest {
         });
         Thread.sleep(1000);
         redisSession.publish(SUBSCRIBE_CHANNEL, message);
-        Thread.sleep(1000);
+        waitConditionUntilTimeOut(()->result.get()!=null, 2000);
         Assert.assertNotNull(result.get());
         Assert.assertEquals(message, result.get());
     }
@@ -226,8 +226,7 @@ public class RedisSessionTest extends AbstractIntegratedTest {
     }
 
 
-    private ProxyResourceManager resourceManager = new ConsoleProxyResourceManager(
-            new DefaultProxyEndpointManager(()->1), new NaiveNextHopAlgorithm());
+    private ProxyResourceManager resourceManager = new ConsoleProxyResourceManager(new NaiveNextHopAlgorithm());
 
     @Test
     public void testPingThroughProxy() throws Exception {

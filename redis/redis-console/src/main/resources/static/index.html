@@ -47,6 +47,11 @@
 						</a>
 					</li>
 					<li class="orange">
+						<a ui-sref="keepercontainer_list({})" title="KeeperContainer列表">
+							<i class="ace-icon fa fa-list"></i> <span>KeeperContainer列表</span>
+						</a>
+					</li>
+					<li class="orange">
 						<a ui-sref="proxy_overview({})" title="Proxy列表">
 							<i class="ace-icon fa fa-list"></i> <span>Proxy列表</span>
 						</a>
@@ -54,6 +59,11 @@
 					<li class="grey">
 						<a ui-sref="cluster_list({clusterName:'',dcName:'',type:''})" title="Cluster列表">
 							<i class="ace-icon fa fa-info-circle"></i> <span>Cluster列表</span>
+						</a>
+					</li>
+					<li class="grey">
+						<a ui-sref="shard_list({})" title="问题Shard列表">
+							<i class="ace-icon fa fa-info-circle"></i> <span>问题Shard列表</span>
 						</a>
 					</li>
 					
@@ -211,6 +221,8 @@
 	<script src="scripts/directives/confirm.js"></script>
 	<script src="scripts/directives/add-shard.js"></script>
 
+	<script src="scripts/ClusterType.js"></script>
+
 	<script src="scripts/controllers/IndexCtl.js"></script>
 	<script src="scripts/controllers/ClusterDcShardCtl.js"></script>
 	<script src="scripts/controllers/ProxyChainCtl.js"></script>
@@ -220,12 +232,14 @@
 	<script src="scripts/controllers/ClusterFormCtl.js"></script>
 	<script src="scripts/controllers/ClusterListCtl.js"></script>
 	<script src="scripts/controllers/ClusterDcCtl.js"></script>
+	<script src="scripts/controllers/ShardListCtl.js"></script>
 	<script src="scripts/controllers/ClusterShardsCtl.js"></script>
 	<script src="scripts/controllers/ClusterDcShardUpdateCtl.js"></script>
 	<script src="scripts/controllers/ActiveDcMigrationIndexCtl.js"></script>
 	<script src="scripts/controllers/ActiveDcMigrationEventListCtl.js"></script>
 	<script src="scripts/controllers/ActiveDcMigrationEventDetailsCtl.js"></script>
 	<script src="scripts/controllers/ActiveDcMigrationEventDetailsContentCtl.js"></script>
+	<script src="scripts/controllers/KeeperContainerListCtl.js"></script>
 	<script src="scripts/controllers/DcListCtl.js"></script>
 
 </body>

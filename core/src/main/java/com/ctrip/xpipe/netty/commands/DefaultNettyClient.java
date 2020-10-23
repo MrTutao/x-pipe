@@ -10,8 +10,10 @@ import io.netty.channel.DefaultChannelPromise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.channels.ClosedChannelException;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -26,6 +28,9 @@ public class DefaultNettyClient implements NettyClient{
 	protected Channel channel;
 	protected final AtomicReference<String> desc = new AtomicReference<>();
 	protected Queue<ByteBufReceiver> receivers = new ConcurrentLinkedQueue<>();
+	private AtomicInteger timeoutCounter = new AtomicInteger();
+
+	protected static int CLIENT_TIMEOUT_TTL = 3;
 	
 	public DefaultNettyClient(Channel channel) {
 		this.channel = channel;
@@ -61,6 +66,9 @@ public class DefaultNettyClient implements NettyClient{
 					receivers.offer(byteBufReceiver);
 				}else{
 					logger.error("[sendRequest][fail]" + channel, future.cause());
+					if (future.cause() instanceof ClosedChannelException) {
+						byteBufReceiver.clientClosed(DefaultNettyClient.this);
+					}
 				}
 			}
 		});
@@ -70,7 +78,16 @@ public class DefaultNettyClient implements NettyClient{
 	}
 
 	@Override
+	public void onTimeout(ByteBufReceiver byteBufReceiver, int timeoutMill) {
+		if (timeoutCounter.incrementAndGet() >= CLIENT_TIMEOUT_TTL) {
+			logger.info("[onTimeout] close channel {} for timeout {} times", channel, CLIENT_TIMEOUT_TTL);
+			channel.close();
+		}
+	}
+
+	@Override
 	public void handleResponse(Channel channel, ByteBuf byteBuf) {
+		timeoutCounter.set(0);
 		
 		ByteBufReceiver byteBufReceiver = receivers.peek();
 
@@ -110,7 +127,11 @@ public class DefaultNettyClient implements NettyClient{
 			if(byteBufReceiver == null){
 				break;
 			}
-			byteBufReceiver.clientClosed(this);
+			try {
+				byteBufReceiver.clientClosed(this);
+			} catch (Exception e) {
+				// do nothing
+			}
 		}
 	}
 

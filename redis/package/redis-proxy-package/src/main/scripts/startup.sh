@@ -61,6 +61,19 @@ function getCurrentRealPath(){
     dir="$( cd -P "$( dirname "$source" )" && pwd )"
     echo $dir
 }
+function trySaveHeapTrace() {
+    logdir=$1
+    suffix=`date +%Y%m%d%H%M%S`
+    if [[ -f "$logdir/heap_trace.txt" ]]; then
+        cp "$logdir/heap_trace.txt" "$logdir/heap_trace_$suffix.txt"
+    fi
+}
+
+function tryRemoveHeapTrace() {
+    logdir=$1
+    suffix=`date -d "$(date +%Y%m)01 last month" +%Y%m`
+    find "$logdir" -type f -name "heap_trace_$suffix*.txt" -delete
+}
 
 #VARS
 FULL_DIR=`getCurrentRealPath`
@@ -69,6 +82,8 @@ SERVER_PORT=`getPortFromPathOrDefault $FULL_DIR 8080`
 JMX_PORT=` expr $SERVER_PORT + 10000 `
 IP=`ifconfig | grep "inet.10" | awk '{print $2}; NR == 1 {exit}'`
 LOG_DIR=/opt/logs/100013684
+`trySaveHeapTrace ${LOG_DIR}`
+`tryRemoveHeapTrace ${LOG_DIR}`
 
 if [ ! $SERVER_PORT -eq 8080 ];then
     LOG_DIR=${LOG_DIR}_$SERVER_PORT
@@ -112,7 +127,10 @@ PATH_TO_JAR=$SERVICE_NAME".jar"
 SERVER_URL="http://localhost:$SERVER_PORT/health"
 STARTUP_LOG=$LOG_DIR"/startup.logger"
 
-if [[ -z "$JAVA_HOME" && -d /usr/java/latest/ ]]; then
+#set the jdk to 1.8 version
+if [[ -z "$JAVA_HOME" && -d /usr/java/jdk1.8.0_121/ ]]; then
+    export JAVA_HOME=/usr/java/jdk1.8.0_121
+elif [[ -z "$JAVA_HOME" && -d /usr/java/latest/ ]]; then
     export JAVA_HOME=/usr/java/latest/
 fi
 

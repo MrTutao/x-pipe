@@ -35,7 +35,7 @@ public class TestProxyMonitorCollectorManager extends AbstractProxyChainTest imp
     @Override
     public ProxyMonitorCollector getOrCreate(ProxyModel proxyModel) {
         try {
-            return new DefaultProxyMonitorCollector(scheduled, getXpipeNettyClientKeyedObjectPool(), proxyModel);
+            return new DefaultProxyMonitorCollector(scheduled, getXpipeNettyClientKeyedObjectPool(), proxyModel, ()->10000);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -84,12 +84,12 @@ public class TestProxyMonitorCollectorManager extends AbstractProxyChainTest imp
     }
 
     @Override
-    public void isCrossDcLeader() {
+    public void isleader() {
 
     }
 
     @Override
-    public void notCrossDcLeader() {
+    public void notLeader() {
 
     }
 }

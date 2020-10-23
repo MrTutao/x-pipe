@@ -1,5 +1,6 @@
 package com.ctrip.xpipe.redis.console.service.migration.impl;
 
+import com.ctrip.xpipe.api.command.Command;
 import com.ctrip.xpipe.api.migration.OuterClientService;
 import com.ctrip.xpipe.redis.console.AbstractConsoleH2DbTest;
 import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
@@ -8,6 +9,7 @@ import com.ctrip.xpipe.redis.console.model.ClusterTbl;
 import com.ctrip.xpipe.redis.console.model.DcTbl;
 import com.ctrip.xpipe.redis.console.service.ClusterService;
 import com.ctrip.xpipe.redis.console.service.DcService;
+import com.ctrip.xpipe.redis.core.service.AbstractService;
 import com.ctrip.xpipe.simpleserver.Server;
 import com.ctrip.xpipe.tuple.Pair;
 import com.google.common.collect.Lists;
@@ -38,6 +40,11 @@ public class DefaultCheckMigrationCommandBuilderTest extends AbstractConsoleH2Db
     private DefaultCheckMigrationCommandBuilder builder;
 
     private Server server;
+
+    @BeforeClass
+    public static void beforeDefaultCheckMigrationCommandBuilderTestClass() {
+        AbstractService.DEFAULT_SO_TIMEOUT = 10;
+    }
 
     @Before
     public void beforeDefaultCheckMigrationCommandBuilderTest() throws Exception {
@@ -98,10 +105,11 @@ public class DefaultCheckMigrationCommandBuilderTest extends AbstractConsoleH2Db
     public void testCheckMetaServer() throws Exception {
         server = startServer(54321, "test");
         when(dcService.findClusterRelatedDc(clusterId)).thenReturn(Lists.newArrayList(new DcTbl().setDcName("localmeta")));
-        RetMessage message = builder.checkCommand(CHECK_MIGRATION_SYSTEM_STEP.CHECK_METASERVER).execute().get();
+        Command<RetMessage> command = builder.checkCommand(CHECK_MIGRATION_SYSTEM_STEP.CHECK_METASERVER);
+        RetMessage message = command.execute().get();
         logger.info("");
         logger.info("{}", message.getMessage());
-        Assert.assertEquals(RetMessage.WARNING_STATE, message.getState());
+        Assert.assertEquals(RetMessage.FAIL_STATE, message.getState());
     }
 
     @Test

@@ -2,8 +2,10 @@ package com.ctrip.xpipe.redis.console.proxy.impl;
 
 import com.ctrip.xpipe.api.factory.ObjectFactory;
 import com.ctrip.xpipe.concurrent.AbstractExceptionLogTask;
+import com.ctrip.xpipe.lifecycle.AbstractStartStoppable;
 import com.ctrip.xpipe.pool.XpipeNettyClientKeyedObjectPool;
 import com.ctrip.xpipe.proxy.ProxyEndpoint;
+import com.ctrip.xpipe.redis.console.config.ConsoleConfig;
 import com.ctrip.xpipe.redis.console.model.ProxyModel;
 import com.ctrip.xpipe.redis.console.proxy.ProxyInfoRecorder;
 import com.ctrip.xpipe.redis.console.proxy.ProxyMonitorCollector;
@@ -37,7 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 @Profile(AbstractProfile.PROFILE_NAME_PRODUCTION)
-public class DefaultProxyMonitorCollectorManager implements ProxyMonitorCollectorManager {
+public class DefaultProxyMonitorCollectorManager extends AbstractStartStoppable implements ProxyMonitorCollectorManager {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultProxyMonitorCollectorManager.class);
 
@@ -55,37 +57,12 @@ public class DefaultProxyMonitorCollectorManager implements ProxyMonitorCollecto
     @Autowired
     private ProxyInfoRecorder proxyInfoRecorder;
 
+    @Autowired
+    private ConsoleConfig consoleConfig;
+
     private ScheduledFuture future;
 
     private AtomicBoolean taskTrigger = new AtomicBoolean(false);
-
-    @PostConstruct
-    public void postConstruct() {
-        future = scheduled.scheduleWithFixedDelay(new AbstractExceptionLogTask() {
-            @Override
-            protected void doRun() {
-                if(!taskTrigger.get()) {
-                    return;
-                }
-                update();
-            }
-        }, getStartTime(), getPeriodic(), TimeUnit.MILLISECONDS);
-    }
-
-    @PreDestroy
-    public void preDestroy() {
-        if(future != null) {
-            future.cancel(true);
-        }
-        proxySamples.values().forEach(result-> {
-            try {
-                result.stop();
-            } catch (Exception e) {
-                logger.error("[preDestroy]", e);
-            }
-        });
-        proxySamples.clear();
-    }
 
     @Override
     public ProxyMonitorCollector getOrCreate(ProxyModel proxyModel) {
@@ -93,7 +70,10 @@ public class DefaultProxyMonitorCollectorManager implements ProxyMonitorCollecto
             @Override
             public ProxyMonitorCollector create() {
                 logger.info("[create proxy monitor collector] {}", proxyModel);
-                ProxyMonitorCollector result = new DefaultProxyMonitorCollector(scheduled, keyedObjectPool, proxyModel);
+                ProxyMonitorCollector result = new DefaultProxyMonitorCollector(
+                        scheduled, keyedObjectPool, proxyModel,
+                        ()->consoleConfig.getProxyInfoCollectInterval()
+                );
                 result.addListener(proxyInfoRecorder);
                 try {
                     result.start();
@@ -163,13 +143,53 @@ public class DefaultProxyMonitorCollectorManager implements ProxyMonitorCollecto
     }
 
     @Override
-    public void isCrossDcLeader() {
+    public void isleader() {
         taskTrigger.set(true);
+        try {
+            start();
+        } catch (Exception e) {
+            logger.error("[notLeader]", e);
+        }
     }
 
     @Override
-    public void notCrossDcLeader() {
+    public void notLeader() {
         taskTrigger.set(false);
+        try {
+            stop();
+        } catch (Exception e) {
+            logger.error("[notLeader]", e);
+        }
+    }
+
+    @Override
+    protected void doStart() throws Exception {
+        future = scheduled.scheduleWithFixedDelay(new AbstractExceptionLogTask() {
+
+            @Override
+            protected void doRun() {
+                if(!taskTrigger.get()) {
+                    return;
+                }
+                update();
+            }
+        }, getStartTime(), getPeriodic(), TimeUnit.MILLISECONDS);
+    }
+
+    @Override
+    protected void doStop() throws Exception {
+        if(future != null) {
+            future.cancel(true);
+            future = null;
+        }
+        proxySamples.values().forEach(result-> {
+            try {
+                result.stop();
+            } catch (Exception e) {
+                logger.error("[preDestroy]", e);
+            }
+        });
+        proxySamples.clear();
     }
 
     private final class TcpPortOnlyProxyRuler implements Ruler<ProxyModel> {

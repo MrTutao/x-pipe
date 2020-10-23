@@ -33,9 +33,9 @@
             <PatternLayout pattern="[%d{HH:mm:ss:SSS}][%p][%t][%c{1}]%m%xpEx%n"/>
             <Policies>
                 <TimeBasedTriggeringPolicy/>
-                <SizeBasedTriggeringPolicy size="100 MB"/>
+                <SizeBasedTriggeringPolicy size="512 MB"/>
             </Policies>
-            <DefaultRolloverStrategy max="5">
+            <DefaultRolloverStrategy max="15">
                 <Delete basePath="${baseDir}" maxDepth="2">
                     <IfFileName glob="health-check*.log.gz"/>
                     <IfLastModified age="7d"/>
@@ -59,7 +59,7 @@
         </RollingFile>
 
         <RollingFile name="rollingNettyClient" fileName="${baseDir}/${nettyClient}.log"
-                     filePattern="${baseDir}/${delayLogName}-%d{yyyy-MM-dd}-%i.log.gz">
+                     filePattern="${baseDir}/${nettyClient}-%d{yyyy-MM-dd}-%i.log.gz">
             <PatternLayout pattern="[%d{HH:mm:ss:SSS}]%m%xpEx%n"/>
             <Policies>
                 <TimeBasedTriggeringPolicy/>
@@ -107,8 +107,16 @@
             <appender-ref ref="rollingNettyClient"/>
         </logger>
 
-        <logger name="com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.HealthStatus.delay" level="DEBUG" additivity="false">
+        <logger name="com.ctrip.xpipe.redis.console.healthcheck.actions.interaction.HealthStatus.delay" level="INFO" additivity="false">
             <appender-ref ref="rollingRedisDelay"/>
+        </logger>
+
+        <logger name="com.ctrip.xpipe.service.metric.HickwallMetric" level="ERROR" additivity="false">
+            <appender-ref ref="rollingFileInfo"/>
+        </logger>
+
+        <logger name="com.ctrip.xpipe.pool.XpipeNettyClientPool" level="WARN" additivity="false">
+            <appender-ref ref="rollingFileInfo"/>
         </logger>
 
         <logger name="org.apache.zookeeper" level="INFO" additivity="false">

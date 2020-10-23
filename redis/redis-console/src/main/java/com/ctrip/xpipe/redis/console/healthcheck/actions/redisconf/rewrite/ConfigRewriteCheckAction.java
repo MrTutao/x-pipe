@@ -5,6 +5,7 @@ import com.ctrip.xpipe.redis.console.alert.ALERT_TYPE;
 import com.ctrip.xpipe.redis.console.alert.AlertManager;
 import com.ctrip.xpipe.redis.console.healthcheck.RedisHealthCheckInstance;
 import com.ctrip.xpipe.redis.console.healthcheck.actions.redisconf.RedisConfigCheckAction;
+import com.ctrip.xpipe.redis.core.protocal.error.RedisError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,9 +41,19 @@ public class ConfigRewriteCheckAction extends RedisConfigCheckAction {
         });
     }
 
+    @Override
+    protected Logger getHealthCheckLogger() {
+        return logger;
+    }
+
     private void checkFailReason(Throwable throwable) {
         if(throwable instanceof CommandTimeoutException) {
             return;
+        }
+        if(throwable instanceof RedisError) {
+            if(throwable.getMessage().contains("during loading")) {
+                return;
+            }
         }
         alertManager.alert(getActionInstance().getRedisInstanceInfo(), ALERT_TYPE.REDIS_CONF_REWRITE_FAILURE,
                 throwable.getClass().getSimpleName());

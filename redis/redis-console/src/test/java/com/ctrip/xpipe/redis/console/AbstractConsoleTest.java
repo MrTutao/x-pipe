@@ -1,5 +1,6 @@
 package com.ctrip.xpipe.redis.console;
 
+import com.ctrip.xpipe.cluster.ClusterType;
 import com.ctrip.xpipe.endpoint.DefaultEndPoint;
 import com.ctrip.xpipe.endpoint.HostPort;
 import com.ctrip.xpipe.redis.console.config.impl.DefaultConsoleConfig;
@@ -25,13 +26,31 @@ public abstract class AbstractConsoleTest extends AbstractRedisTest{
 	public static void beforeAbstractConsoleTest(){
 		System.setProperty(HealthChecker.ENABLED, "false");
 	}
+
+	protected RedisHealthCheckInstance newRandomRedisHealthCheckInstance(String currentDc, String activeDc, int port) throws Exception {
+		RedisMeta redisMeta = newRandomFakeRedisMeta().setPort(port);
+		DefaultRedisInstanceInfo info = new DefaultRedisInstanceInfo(currentDc,
+				redisMeta.parent().parent().getId(), redisMeta.parent().getId(),
+				new HostPort(redisMeta.getIp(), redisMeta.getPort()),
+				activeDc, ClusterType.ONE_WAY);
+		return newRandomRedisHealthCheckInstance(info);
+	}
+
+	protected RedisHealthCheckInstance newRandomRedisHealthCheckInstance(String currentDc, ClusterType clusterType, int port) throws Exception {
+		RedisMeta redisMeta = newRandomFakeRedisMeta().setPort(port);
+		DefaultRedisInstanceInfo info = new DefaultRedisInstanceInfo(currentDc,
+				redisMeta.parent().parent().getId(), redisMeta.parent().getId(),
+				new HostPort(redisMeta.getIp(), redisMeta.getPort()),
+				null, clusterType);
+		return newRandomRedisHealthCheckInstance(info);
+	}
 	
 	protected RedisHealthCheckInstance newRandomRedisHealthCheckInstance(String activeDc, int port) throws Exception {
 		RedisMeta redisMeta = newRandomFakeRedisMeta().setPort(port);
 		DefaultRedisInstanceInfo info = new DefaultRedisInstanceInfo(redisMeta.parent().parent().parent().getId(),
 				redisMeta.parent().parent().getId(), redisMeta.parent().getId(),
 				new HostPort(redisMeta.getIp(), redisMeta.getPort()),
-				activeDc);
+				activeDc, ClusterType.ONE_WAY);
 		return newRandomRedisHealthCheckInstance(info);
 	}
 
@@ -40,7 +59,7 @@ public abstract class AbstractConsoleTest extends AbstractRedisTest{
 		DefaultRedisInstanceInfo info = new DefaultRedisInstanceInfo(redisMeta.parent().parent().parent().getId(),
 				redisMeta.parent().parent().getId(), redisMeta.parent().getId(),
 				new HostPort(redisMeta.getIp(), redisMeta.getPort()),
-				redisMeta.parent().getActiveDc());
+				redisMeta.parent().getActiveDc(), ClusterType.ONE_WAY);
 		return newRandomRedisHealthCheckInstance(info);
 	}
 
@@ -51,5 +70,14 @@ public abstract class AbstractConsoleTest extends AbstractRedisTest{
 		instance.setHealthCheckConfig(new DefaultHealthCheckConfig(new DefaultConsoleConfig()));
 		instance.setSession(new RedisSession(instance.getEndpoint(), scheduled, getXpipeNettyClientKeyedObjectPool()));
 		return instance;
+	}
+
+	protected RedisHealthCheckInstance newHangedRedisHealthCheckInstance() throws Exception {
+		RedisMeta redisMeta = newRandomFakeRedisMeta(getTimeoutIp(), 6379);
+		DefaultRedisInstanceInfo info = new DefaultRedisInstanceInfo(redisMeta.parent().parent().parent().getId(),
+				redisMeta.parent().parent().getId(), redisMeta.parent().getId(),
+				new HostPort(redisMeta.getIp(), redisMeta.getPort()),
+				redisMeta.parent().getActiveDc(), ClusterType.ONE_WAY);
+		return newRandomRedisHealthCheckInstance(info);
 	}
 }

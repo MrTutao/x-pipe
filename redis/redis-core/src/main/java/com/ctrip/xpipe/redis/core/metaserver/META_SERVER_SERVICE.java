@@ -22,11 +22,15 @@ public enum META_SERVER_SERVICE {
     CHANGE_PRIMARY_DC_CHECK(PATH.PATH_CHANGE_PRIMARY_DC_CHECK, ForwardType.FORWARD),
     CHANGE_PRIMARY_DC(PATH.PATH_CHANGE_PRIMARY_DC, ForwardType.MULTICASTING),
     MAKE_MASTER_READONLY(PATH.PATH_MAKE_MASTER_READONLY, ForwardType.FORWARD),
+    GET_CURRENT_MASTER(PATH.PATH_GET_CURRENT_MASTER, ForwardType.FORWARD),
 
     //keeper
+    KEEPER_TOKEN_STATUS(PATH.KEEPER_TOKEN_STATUS, ForwardType.MULTICASTING),
 
     //multi dc
-    UPSTREAM_CHANGE(PATH.PATH_UPSTREAM_CHANGE, ForwardType.FORWARD);
+    UPSTREAM_CHANGE(PATH.PATH_UPSTREAM_CHANGE, ForwardType.FORWARD),
+    GET_PEER_MASTER(PATH.GET_PEER_MASTER, ForwardType.FORWARD),
+    UPSTREAM_PEER_CHANGE(PATH.PATH_UPSTREAM_PEER_CHANGE, ForwardType.FORWARD);
 
     private String path;
     private ForwardType forwardType;
@@ -103,15 +107,19 @@ public enum META_SERVER_SERVICE {
         public static final String GET_ACTIVE_KEEPER = "/getactivekeeper/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE;
 
         //keeper
+        public static final String KEEPER_TOKEN_STATUS = "/keeper/token/status";
 
         //console
         public static final String PATH_CLUSTER_CHANGE = "/clusterchange/" + CLUSTER_ID_PATH_VARIABLE;
         public static final String PATH_CHANGE_PRIMARY_DC_CHECK = "/changeprimarydc/check/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE + "/{newPrimaryDc}";
         public static final String PATH_CHANGE_PRIMARY_DC = "/changeprimarydc/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE + "/{newPrimaryDc}";
         public static final String PATH_MAKE_MASTER_READONLY = "/masterreadonly/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE + "/{readOnly}";
+        public static final String PATH_GET_CURRENT_MASTER = "/getcurrentmaster/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE;
 
         //multi dc
         public static final String PATH_UPSTREAM_CHANGE = "/upstreamchange/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE + "/{ip}/{port}";
+        public static final String GET_PEER_MASTER = "/getpeermaster/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE;
+        public static final String PATH_UPSTREAM_PEER_CHANGE = "/upstreampeerchange/{dcId}/" + CLUSTER_ID_PATH_VARIABLE + "/" + SHARD_ID_PATH_VARIABLE;
 
     }
 

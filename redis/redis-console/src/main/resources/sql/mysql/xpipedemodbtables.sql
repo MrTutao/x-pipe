@@ -70,6 +70,7 @@ drop table if exists CLUSTER_TBL;
 CREATE TABLE `CLUSTER_TBL` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT 'primary key',
   `cluster_name` varchar(128) NOT NULL DEFAULT 'default' COMMENT 'cluster name',
+  `cluster_type` varchar(32) NOT NULL DEFAULT 'one_way' COMMENT 'cluster type',
   `activedc_id` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT 'active dc id',
   `cluster_description` varchar(1024) NOT NULL DEFAULT 'nothing' COMMENT 'cluster description',
   `cluster_last_modified_time` varchar(40) NOT NULL DEFAULT '' COMMENT 'last modified tag',
@@ -154,7 +155,9 @@ CREATE TABLE `REDIS_TBL` (
   `keepercontainer_id` bigint(20) unsigned DEFAULT NULL COMMENT 'keepercontainer id',
   `DataChange_LastTime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'last modified time',
   `deleted` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'deleted or not',
+  `deleted_at` int(11) NOT NULL DEFAULT '0' COMMENT 'deleted time',
   PRIMARY KEY (`id`),
+  UNIQUE KEY `ip_port_deleted_at` (`redis_ip`,`redis_port`,`deleted_at`),
   KEY `DataChange_LastTime` (`DataChange_LastTime`),
   KEY `DcClusterShardId` (`dc_cluster_shard_id`),
   KEY `keeper_active` (`keeper_active`)
@@ -235,6 +238,7 @@ drop table if exists config_tbl;
 CREATE TABLE `config_tbl` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT 'primary key',
   `key` varchar(128) NOT NULL DEFAULT '' COMMENT 'key',
+  `sub_key` varchar(128) NOT NULL DEFAULT '' COMMENT 'sub_key',
   `value` varchar(1024) DEFAULT '' COMMENT 'value',
   `until` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'for potential use',
   `latest_update_user` varchar(512) DEFAULT '' COMMENT 'latest person who update the config',
@@ -244,7 +248,7 @@ CREATE TABLE `config_tbl` (
   `deleted` tinyint(4) NOT NULL DEFAULT '0' COMMENT 'deleted or not',
   PRIMARY KEY (`id`),
   KEY `DataChange_LastTime` (`DataChange_LastTime`),
-  UNIQUE KEY `key` (`key`)
+  UNIQUE KEY `key_sub_key` (`key`,`sub_key`)
 ) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8 COMMENT='xpipe config';
 
 INSERT INTO config_tbl (`key`, `value`, `desc`) VALUES ('sentinel.auto.process', 'true', '自动增删哨兵');

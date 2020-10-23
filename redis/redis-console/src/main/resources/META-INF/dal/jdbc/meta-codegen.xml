@@ -3,6 +3,7 @@
   <entity name="cluster-tbl" table="CLUSTER_TBL" alias="ct">
     <member name="id" field="id" value-type="long" length="20" nullable="false" key="true" auto-increment="true" />
     <member name="cluster-name" field="cluster_name" value-type="String" length="128" nullable="false" />
+    <member name="cluster-type" field="cluster_type" value-type="String" length="32" nullable="false" />
     <member name="activedc-id" field="activedc_id" value-type="long" length="20" nullable="false" />
     <member name="cluster-description" field="cluster_description" value-type="String" length="1024" nullable="false" />
     <member name="cluster-last-modified-time" field="cluster_last_modified_time" value-type="String" length="40" nullable="false" />
@@ -175,11 +176,6 @@
         <statement><![CDATA[DELETE FROM <TABLE/>
         WHERE <FIELD name='id'/> = ${key-id}]]></statement>
       </query>
-      <query name="insert-with-part-field" type="INSERT">
-        <statement><![CDATA[INSERT INTO <TABLE/>(<FIELD name='id'/>,<FIELD name='zone-id'/>,
-        <FIELD name='dc-name'/>, <FIELD name='dc-description'/>) VALUES(<VALUE name='id'/>,
-        <VALUE name='zone-id'/>, <VALUE name='dc-name'/>, <VALUE name='dc-description'/>)]]></statement>
-      </query>
     </query-defs>
   </entity>
   <entity name="keepercontainer-tbl" table="KEEPERCONTAINER_TBL" alias="kt">
@@ -283,8 +279,10 @@
     <member name="keepercontainer-id" field="keepercontainer_id" value-type="long" length="20" />
     <member name="data-change-last-time" field="DataChange_LastTime" value-type="Date" nullable="false" />
     <member name="deleted" field="deleted" value-type="boolean" nullable="false" />
+    <member name="deleted-at" field="deleted_at" value-type="int" length="10" nullable="false" />
     <var name="key-id" value-type="long" key-member="id" />
     <primary-key name="PRIMARY" members="id" />
+    <index name="ip_port_deleted_at" unique="true" members="redis_ip ASC, redis_port ASC, deleted_at ASC" />
     <index name="DataChange_LastTime" members="DataChange_LastTime ASC" />
     <index name="DcClusterShardId" members="dc_cluster_shard_id ASC" />
     <index name="keeper_active" members="keeper_active ASC" />
@@ -433,24 +431,16 @@
         WHERE <FIELD name='id'/> = ${key-id}]]></statement>
       </query>
       <query name="delete-by-PK" type="DELETE">
-        <param name="key-id"/>
+        <param name="key-id" />
         <statement><![CDATA[DELETE FROM <TABLE/>
         WHERE <FIELD name='id'/> = ${key-id}]]></statement>
-      </query>
-      <query name="find-all-zones" type="SELECT" multiple="true">
-        <statement>
-          <![CDATA[
-					SELECT <FIELDS/>
-					FROM <TABLE/>
-					WHERE <FIELD name='deleted'/> = 0
-					]]>
-        </statement>
       </query>
     </query-defs>
   </entity>
   <entity name="config-tbl" table="config_tbl" alias="ct2">
     <member name="id" field="id" value-type="long" length="20" nullable="false" key="true" auto-increment="true" />
     <member name="key" field="key" value-type="String" length="128" nullable="false" />
+    <member name="sub-key" field="sub_key" value-type="String" length="128" nullable="false" />
     <member name="value" field="value" value-type="String" length="1024" />
     <member name="until" field="until" value-type="Date" nullable="false" />
     <member name="latest-update-user" field="latest_update_user" value-type="String" length="512" />
@@ -460,7 +450,7 @@
     <member name="deleted" field="deleted" value-type="int" length="3" nullable="false" />
     <var name="key-id" value-type="long" key-member="id" />
     <primary-key name="PRIMARY" members="id" />
-    <index name="key" unique="true" members="key ASC" />
+    <index name="key_sub_key" unique="true" members="key ASC, sub_key ASC" />
     <index name="DataChange_LastTime" members="DataChange_LastTime ASC" />
     <readsets>
       <readset name="FULL" all="true" />
@@ -704,7 +694,7 @@
   <entity name="proxy-tbl" table="proxy_tbl" alias="pt">
     <member name="id" field="id" value-type="long" length="20" nullable="false" key="true" auto-increment="true" />
     <member name="dc-id" field="dc_id" value-type="long" length="20" nullable="false" />
-    <member name="uri" field="uri" value-type="String" length="20" nullable="false" />
+    <member name="uri" field="uri" value-type="String" length="256" nullable="false" />
     <member name="active" field="active" value-type="boolean" nullable="false" />
     <member name="monitor-active" field="monitor_active" value-type="boolean" nullable="false" />
     <member name="data-change-last-time" field="DataChange_LastTime" value-type="Date" nullable="false" />
